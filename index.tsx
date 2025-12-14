@@ -18,8 +18,8 @@ import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocess
 // 📸 [照片配置]
 // Replace with highly reliable Unsplash IDs to prevent 403/404 errors
 const BASE_PHOTOS = [
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image1.jpg", // Red ornaments
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image10.JPG", // Green/Gold bokeh
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image1.jpg", // Red ornaments
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Green/Gold bokeh
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image8.JPG", // Green/Gold bokeh
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image2.jpg", // Sparkles
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image6.JPG"  // Christmas tree and gifts
