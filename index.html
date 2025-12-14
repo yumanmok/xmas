@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luxe Noel - ARIX Signature</title>
+    <!-- Import Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+    
+    <style>
+      /* --- CSS Variables based on Luxe Spec + Emerald Theme --- */
+      :root {
+        --bg-color: #02120b; /* Deep Emerald */
+        --accent-primary: #e8d4e8;   /* Pale Purple/White Gold */
+        --accent-secondary: #8b5a8b; /* Deep Purple accent */
+        --accent-gold: #ffcf4d;      /* Bright Gold */
+        --text-color: #f5e6f5;
+        
+        --card-gradient: linear-gradient(90deg, transparent, rgba(232, 212, 232, 0.5), transparent);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        overflow: hidden;
+        font-family: 'Playfair Display', serif;
+        
+        /* Custom Star Cursor */
+        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='%23ffcf4d' stroke='%23b8860b' stroke-width='1.5' d='M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z'/%3E%3C/svg%3E") 12 12, auto;
+      }
+
+      #root {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* --- Animations --- */
+      @keyframes spotlight {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -60%) scale(0.8);
+          filter: blur(10px);
+        }
+        100% {
+          opacity: 1;
+          transform: translate(0, 0) scale(1);
+          filter: blur(0);
+        }
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* --- UI Container (React will render into this structure) --- */
+      .ui-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none; /* Let clicks pass through to Canvas */
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        padding: 40px 20px;
+        background: radial-gradient(
+          circle at center,
+          transparent 0%,
+          rgba(2, 18, 11, 0.4) 100%
+        );
+        z-index: 10;
+      }
+
+      .ui-header {
+        text-align: center;
+        margin-top: 10px;
+        opacity: 0;
+        /* Using the spotlight animation from your friend's spec */
+        animation: spotlight 2s ease 0.5s 1 forwards; 
+      }
+
+      .subtitle {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.4em;
+        text-transform: uppercase;
+        color: var(--accent-gold);
+        margin-bottom: 12px;
+        display: block;
+        text-shadow: 0 0 10px rgba(255, 207, 77, 0.3);
+      }
+
+      h1 {
+        font-size: 3rem;
+        font-weight: 400;
+        margin: 0;
+        text-shadow: 0 0 40px rgba(255, 207, 77, 0.4);
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        background: linear-gradient(to bottom, #fff, var(--accent-gold));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .ui-footer {
+        text-align: center;
+        margin-bottom: 30px;
+        pointer-events: auto; /* Re-enable clicks for footer buttons */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        opacity: 0;
+        animation: fadeInUp 1.5s ease 1s forwards;
+      }
+
+      .instruction {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.65rem;
+        letter-spacing: 0.25em;
+        color: rgba(255, 255, 255, 0.5);
+        text-transform: uppercase;
+      }
+
+      /* --- Magic Button --- */
+      .magic-button {
+        background: rgba(2, 18, 11, 0.4);
+        border: 1px solid rgba(255, 207, 77, 0.3);
+        color: var(--accent-gold);
+        padding: 16px 40px;
+        font-size: 0.85rem;
+        font-family: "Playfair Display", serif;
+        text-transform: uppercase;
+        letter-spacing: 0.25em;
+        cursor: pointer;
+        transition: all 0.6s cubic-bezier(0.19, 1, 0.22, 1);
+        position: relative;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+        border-radius: 2px;
+      }
+
+      .magic-button::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 207, 77, 0.2), transparent);
+        transition: left 0.5s;
+      }
+
+      .magic-button:hover {
+        background: rgba(255, 207, 77, 0.1);
+        border-color: var(--accent-gold);
+        box-shadow: 0 0 40px rgba(255, 207, 77, 0.3);
+        letter-spacing: 0.3em;
+      }
+
+      .magic-button:hover::before {
+        left: 100%;
+      }
+
+      .magic-button:active {
+        transform: scale(0.98);
+      }
+
+      /* --- Loading Screen --- */
+      .loader-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg-color);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        z-index: 9999;
+        transition: opacity 0.8s ease;
+      }
+
+      .loader {
+        width: 50px;
+        height: 50px;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        border-top-color: var(--accent-gold);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      .loader-text {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--accent-gold);
+      }
+
+      @media (max-width: 600px) {
+        h1 { font-size: 2rem; }
+        .ui-container { padding: 20px; }
+        .magic-button { padding: 12px 28px; font-size: 0.75rem; }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "three": "https://aistudiocdn.com/three@^0.181.2",
+    "@react-three/fiber": "https://aistudiocdn.com/@react-three/fiber@^9.4.2",
+    "@react-three/drei": "https://aistudiocdn.com/@react-three/drei@^10.7.7",
+    "@react-three/postprocessing": "https://aistudiocdn.com/@react-three/postprocessing@^3.0.4",
+    "maath": "https://aistudiocdn.com/maath@^0.10.8",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
