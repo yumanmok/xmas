@@ -18,10 +18,16 @@ import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocess
 // 📸 [照片配置]
 // Replace with highly reliable Unsplash IDs to prevent 403/404 errors
 const BASE_PHOTOS = [
-  "https://images.unsplash.com/photo-1544967082-d9d25d867d66?ixlib=rb-4.0.3&w=600&q=80", // Red ornaments
-  "https://images.unsplash.com/photo-1512389142860-9c449e58a543?ixlib=rb-4.0.3&w=600&q=80", // Green/Gold bokeh
-  "https://images.unsplash.com/photo-1482517967863-00e15c9b44be?ixlib=rb-4.0.3&w=600&q=80", // Sparkles
-  "https://images.unsplash.com/photo-1513297887119-d46091b24bfa?ixlib=rb-4.0.3&w=600&q=80"  // Christmas tree and gifts
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image1.jpg", // Red ornaments
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image10.JPG", // Green/Gold bokeh
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image8.JPG", // Green/Gold bokeh
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image2.jpg", // Sparkles
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image9.jpg", // Sparkles
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image7.JPG"  // Christmas tree and gifts
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image3.JPG"  // Christmas tree and gifts
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image4.JPG"  // Christmas tree and gifts
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image5.JPG"  // Christmas tree and gifts
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image6.JPG"  // Christmas tree and gifts
 ];
 
 // 自动生成 10 张照片的数组
@@ -30,7 +36,7 @@ const USER_PHOTOS = BASE_PHOTOS.length > 0
   : [];
 
 // 🎵 [背景音乐]
-const BACKGROUND_MUSIC_URL = "https://cdn.pixabay.com/download/audio/2022/11/22/audio_febc508520.mp3?filename=christmas-background-music-126529.mp3";
+const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/75e6ee7b5bd2e852d0307ac2a57cd8d2/693ec86f/resource/30106/trackmedia/M500000jZ9Vr2Wgbeu.mp3";
 
 // --- Constants & Palette (Emerald + Gold Theme) ---
 const PALETTE = {
