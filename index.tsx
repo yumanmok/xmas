@@ -22,11 +22,6 @@ const BASE_PHOTOS = [
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image10.JPG", // Green/Gold bokeh
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image8.JPG", // Green/Gold bokeh
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image2.jpg", // Sparkles
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image9.jpg", // Sparkles
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image7.JPG"  // Christmas tree and gifts
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image3.JPG"  // Christmas tree and gifts
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image4.JPG"  // Christmas tree and gifts
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image5.JPG"  // Christmas tree and gifts
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image6.JPG"  // Christmas tree and gifts
 ];
 
