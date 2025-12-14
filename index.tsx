@@ -17,30 +17,23 @@ import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocess
 // --- Configuration ---
 
 // 📸 [照片配置]
-// ⚠️ 重要提示：如果你使用自己的阿里云/AWS S3 图片，必须在云存储控制台开启 CORS (跨域资源共享)
-// 设置允许 Origin: *，允许 Methods: GET。否则 WebGL 无法加载图片。
-
+// 你的照片 (阿里云 OSS)
+// 如果这些照片加载失败 (CORS)，系统会自动切换到下面的 BACKUP_PHOTOS
 const USER_PROVIDED_PHOTOS = [
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image1.jpg",
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image7.JPG",
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image10.JPG",
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image2.jpg"
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
+  "https://img-view-c-zb.drive.quark.cn/VpKZZLfZ/11315219110/bc8c931ed952427181defa9aa12746cb688e2b54/688e2b5411a798bc5edc45d6824e25c099b0c1d6/preview_png"
 ];
 
-// 备用稳定图源 (Unsplash)
+// 备用稳定图源 (Unsplash) - 当上面照片不可用时自动启用
 const BACKUP_PHOTOS = [
   "https://images.unsplash.com/photo-1544967082-d9d25d867d66?ixlib=rb-4.0.3&w=600&q=80",
   "https://images.unsplash.com/photo-1512389142860-9c449e58a543?ixlib=rb-4.0.3&w=600&q=80",
   "https://images.unsplash.com/photo-1482517967863-00e15c9b44be?ixlib=rb-4.0.3&w=600&q=80",
   "https://images.unsplash.com/photo-1513297887119-d46091b24bfa?ixlib=rb-4.0.3&w=600&q=80"
 ];
-
-// 优先使用用户图片，如果为空则使用备用
-const ACTIVE_PHOTOS_SOURCE = USER_PROVIDED_PHOTOS.length > 0 ? USER_PROVIDED_PHOTOS : BACKUP_PHOTOS;
-
-// 自动填充至 10 张，确保视觉效果丰富
-const USER_PHOTOS = Array.from({ length: 10 }, (_, i) => ACTIVE_PHOTOS_SOURCE[i % ACTIVE_PHOTOS_SOURCE.length]);
 
 // 🎵 [背景音乐]
 const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/75e6ee7b5bd2e852d0307ac2a57cd8d2/693ec86f/resource/30106/trackmedia/M500000jZ9Vr2Wgbeu.mp3";
@@ -57,7 +50,7 @@ const PALETTE = {
   pink: "#ffb7c5",
   pinkDeep: "#d66ba0",
   redVelvet: "#c41e3a",
-  error: "#ff4d4d", // Color for broken images
+  error: "#ff4d4d", 
 };
 
 // --- Damp helper ---
@@ -192,13 +185,18 @@ type PhotoItemData = {
   url: string;
 };
 
-// Pre-calculate positions so we can render frames even if textures fail
+// Generate positions for a specific set of URLs
 const generatePhotoData = (photos: string[]): PhotoItemData[] => {
-  const count = photos.length;
-  const height = 10;
-  return photos.map((url, i) => {
+  // Ensure we have at least some photos, loop them to get to 10
+  const count = 10;
+  const source = photos.length > 0 ? photos : [""]; 
+  
+  return Array.from({ length: count }, (_, i) => {
+    const url = source[i % source.length];
+    
+    // Position Logic
     const pct = i / Math.max(1, count - 1);
-    const y = (1 - pct) * height - height / 2 + 1;
+    const y = (1 - pct) * 10 - 5 + 1;
     const r = 4.0 * (1 - (y + 6) / 12.5);
     const theta = i * Math.PI * (3 - Math.sqrt(5)) * 10 + Math.PI / 4;
 
@@ -581,7 +579,7 @@ const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect
       <mesh>
         <planeGeometry args={[planeW, planeH]} />
         {error || !texture ? (
-           <meshBasicMaterial color="#330000" />
+           <meshBasicMaterial color="#2a0a0a" />
         ) : (
            <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
         )}
@@ -591,13 +589,13 @@ const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect
       {error && (
         <group position={[0, 0, 0.02]}>
           <Text 
-            fontSize={0.2} 
-            color="white" 
+            fontSize={0.15} 
+            color="#ff6b6b" 
             anchorX="center" 
             anchorY="middle"
             maxWidth={planeW * 0.9}
           >
-            CORS / ERROR
+            IMAGE ERROR
           </Text>
         </group>
       )}
@@ -610,17 +608,26 @@ const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect
   );
 };
 
-// Component that actually suspends
-const LoadedTextures = ({ data, isTree, onSelectPhoto }: { data: PhotoItemData[]; isTree: boolean; onSelectPhoto: (url: string) => void }) => {
-  const urls = data.map(d => d.url);
+// --- Layer 1: The component that tries to load User Photos ---
+const UserGalleryLayer = ({ isTree, onSelectPhoto }: { isTree: boolean; onSelectPhoto: (url: string) => void }) => {
+  if (!USER_PROVIDED_PHOTOS || USER_PROVIDED_PHOTOS.length === 0) {
+    // If no user photos, throw error to trigger backup immediately
+    throw new Error("No user photos");
+  }
+
+  // Pre-calculate positions
+  const photoData = useMemo(() => generatePhotoData(USER_PROVIDED_PHOTOS), []);
+  const urls = photoData.map(d => d.url);
+  
+  // This will SUSPEND if loading, and THROW if error (CORS/404)
   const textures = useTexture(urls);
   const textureArray = Array.isArray(textures) ? textures : [textures];
 
   return (
     <group>
-      {data.map((item, i) => (
+      {photoData.map((item, i) => (
         <PhotoFrame
-          key={i}
+          key={`user-${i}`}
           index={i}
           isTree={isTree}
           texture={textureArray[i]}
@@ -635,13 +642,45 @@ const LoadedTextures = ({ data, isTree, onSelectPhoto }: { data: PhotoItemData[]
   );
 };
 
-// Fallback component when textures fail (e.g. CORS)
-const FallbackFrames = ({ data, isTree }: { data: PhotoItemData[]; isTree: boolean }) => {
+// --- Layer 2: The component that tries to load Backup Photos ---
+const BackupGalleryLayer = ({ isTree, onSelectPhoto }: { isTree: boolean; onSelectPhoto: (url: string) => void }) => {
+  // Pre-calculate positions using backup source
+  const photoData = useMemo(() => generatePhotoData(BACKUP_PHOTOS), []);
+  const urls = photoData.map(d => d.url);
+  
+  // This will SUSPEND if loading, and THROW if error
+  const textures = useTexture(urls);
+  const textureArray = Array.isArray(textures) ? textures : [textures];
+
   return (
     <group>
-      {data.map((item, i) => (
+      {photoData.map((item, i) => (
         <PhotoFrame
-          key={i}
+          key={`backup-${i}`}
+          index={i}
+          isTree={isTree}
+          texture={textureArray[i]}
+          treePos={item.treePos}
+          scatterPos={item.scatterPos}
+          url={item.url}
+          onSelect={onSelectPhoto}
+          error={false}
+        />
+      ))}
+    </group>
+  );
+};
+
+// --- Layer 3: The Red Placeholder Fallback ---
+const FallbackLayer = ({ isTree }: { isTree: boolean }) => {
+  // Use user photos array for position count generation, just so we have frames
+  const photoData = useMemo(() => generatePhotoData(USER_PROVIDED_PHOTOS.length > 0 ? USER_PROVIDED_PHOTOS : BACKUP_PHOTOS), []);
+  
+  return (
+    <group>
+      {photoData.map((item, i) => (
+        <PhotoFrame
+          key={`fallback-${i}`}
           index={i}
           isTree={isTree}
           texture={null}
@@ -668,7 +707,8 @@ class TextureErrorBoundary extends React.Component<
     return { hasError: true };
   }
   componentDidCatch(error: any) {
-    console.warn("PhotoGallery Texture Error (likely CORS):", error);
+    // Only log warning, don't crash
+    console.warn("Gallery loading failed (CORS or Network). Switching to fallback.", error);
   }
   render() {
     if (this.state.hasError) return this.props.fallback;
@@ -676,16 +716,16 @@ class TextureErrorBoundary extends React.Component<
   }
 }
 
-const PhotoGallery = ({ isTree, photos, onSelectPhoto }: { isTree: boolean; photos: string[]; onSelectPhoto: (url: string) => void }) => {
-  if (!photos || photos.length === 0) return null;
-
-  // Memoize positions so they are stable regardless of texture loading status
-  const photoData = useMemo(() => generatePhotoData(photos), [photos]);
-
+// --- The Master Controller Component ---
+const RobustPhotoGallery = ({ isTree, onSelectPhoto }: { isTree: boolean; onSelectPhoto: (url: string) => void }) => {
   return (
-    <TextureErrorBoundary fallback={<FallbackFrames data={photoData} isTree={isTree} />}>
-      <Suspense fallback={<FallbackFrames data={photoData} isTree={isTree} />}>
-        <LoadedTextures data={photoData} isTree={isTree} onSelectPhoto={onSelectPhoto} />
+    // Outer boundary: Catch failures in Backup -> Show Red Placeholders
+    <TextureErrorBoundary fallback={<FallbackLayer isTree={isTree} />}>
+      <Suspense fallback={null}>
+        {/* Inner boundary: Catch failures in User Photos -> Show Backup */}
+        <TextureErrorBoundary fallback={<BackupGalleryLayer isTree={isTree} onSelectPhoto={onSelectPhoto} />}>
+           <UserGalleryLayer isTree={isTree} onSelectPhoto={onSelectPhoto} />
+        </TextureErrorBoundary>
       </Suspense>
     </TextureErrorBoundary>
   );
@@ -819,7 +859,7 @@ const Scene = ({ isTree, toggleTree, customPhotos, onSelectPhoto }: { isTree: bo
           <Diamonds isTree={isTree} />
           <Gifts isTree={isTree} />
           
-          <PhotoGallery isTree={isTree} photos={customPhotos} onSelectPhoto={onSelectPhoto} />
+          <RobustPhotoGallery isTree={isTree} onSelectPhoto={onSelectPhoto} />
           
           <FairyLights isTree={isTree} />
           <Star isTree={isTree} />
@@ -849,7 +889,7 @@ const App = () => {
       <Lightbox src={selectedPhoto} onClose={() => setSelectedPhoto(null)} />
       <Canvas shadows dpr={[1, 2]} gl={{ antialias: false, toneMapping: THREE.CineonToneMapping, toneMappingExposure: 1.2 }}>
         <Suspense fallback={null}>
-          <Scene isTree={isTree} toggleTree={() => setIsTree((s) => !s)} customPhotos={USER_PHOTOS} onSelectPhoto={setSelectedPhoto} />
+          <Scene isTree={isTree} toggleTree={() => setIsTree((s) => !s)} customPhotos={USER_PROVIDED_PHOTOS} onSelectPhoto={setSelectedPhoto} />
         </Suspense>
       </Canvas>
       <Suspense fallback={<LoadingScreen />}>
