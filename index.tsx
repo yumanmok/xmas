@@ -10,25 +10,37 @@ import {
   PerspectiveCamera,
   shaderMaterial,
   useTexture,
+  Text,
 } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocessing";
 
 // --- Configuration ---
 
 // 📸 [照片配置]
-// Replace with highly reliable Unsplash IDs to prevent 403/404 errors
-const BASE_PHOTOS = [
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image1.jpg", // Red ornaments
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Green/Gold bokeh
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Green/Gold bokeh
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Sparkles
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg"  // Christmas tree and gifts
+// ⚠️ 重要提示：如果你使用自己的阿里云/AWS S3 图片，必须在云存储控制台开启 CORS (跨域资源共享)
+// 设置允许 Origin: *，允许 Methods: GET。否则 WebGL 无法加载图片。
+
+const USER_PROVIDED_PHOTOS = [
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image1.jpg",
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image7.JPG",
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image10.JPG",
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image2.jpg"
 ];
 
-// 自动生成 10 张照片的数组
-const USER_PHOTOS = BASE_PHOTOS.length > 0 
-  ? Array.from({ length: 10 }, (_, i) => BASE_PHOTOS[i % BASE_PHOTOS.length])
-  : [];
+// 备用稳定图源 (Unsplash)
+const BACKUP_PHOTOS = [
+  "https://images.unsplash.com/photo-1544967082-d9d25d867d66?ixlib=rb-4.0.3&w=600&q=80",
+  "https://images.unsplash.com/photo-1512389142860-9c449e58a543?ixlib=rb-4.0.3&w=600&q=80",
+  "https://images.unsplash.com/photo-1482517967863-00e15c9b44be?ixlib=rb-4.0.3&w=600&q=80",
+  "https://images.unsplash.com/photo-1513297887119-d46091b24bfa?ixlib=rb-4.0.3&w=600&q=80"
+];
+
+// 优先使用用户图片，如果为空则使用备用
+const ACTIVE_PHOTOS_SOURCE = USER_PROVIDED_PHOTOS.length > 0 ? USER_PROVIDED_PHOTOS : BACKUP_PHOTOS;
+
+// 自动填充至 10 张，确保视觉效果丰富
+const USER_PHOTOS = Array.from({ length: 10 }, (_, i) => ACTIVE_PHOTOS_SOURCE[i % ACTIVE_PHOTOS_SOURCE.length]);
 
 // 🎵 [背景音乐]
 const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/75e6ee7b5bd2e852d0307ac2a57cd8d2/693ec86f/resource/30106/trackmedia/M500000jZ9Vr2Wgbeu.mp3";
@@ -37,7 +49,7 @@ const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/75e6ee7b5bd2e852d0307ac2a
 const PALETTE = {
   bg: "#02120b",
   primary: "#e8d4e8",
-  emerald: "#1a5e4a", // Significantly brighter emerald for better visibility
+  emerald: "#1a5e4a",
   greenDark: "#1a4731",
   greenLight: "#4add8c", 
   gold: "#ffcf4d",
@@ -45,6 +57,7 @@ const PALETTE = {
   pink: "#ffb7c5",
   pinkDeep: "#d66ba0",
   redVelvet: "#c41e3a",
+  error: "#ff4d4d", // Color for broken images
 };
 
 // --- Damp helper ---
@@ -98,16 +111,13 @@ const FoliageMaterial = shaderMaterial(
       gl_Position = projectionMatrix * mvPosition;
       
       // Size attenuation
-      float baseSize = (7.0 + aRandom * 5.0) * uPixelRatio; // Slightly larger particles
+      float baseSize = (7.0 + aRandom * 5.0) * uPixelRatio;
       baseSize *= (12.0 / max(0.5, -mvPosition.z)); 
       gl_PointSize = clamp(baseSize, 0.0, 90.0);
 
-      // Color Gradient
-      // Ensure we use the full range of colors
       float heightPct = (aTreePos.y + 6.0) / 12.0;
       vec3 treeColor = mix(uColorBottom, uColorTop, heightPct + sin(uTime + aRandom) * 0.1); 
       
-      // Flash effect (golden sparkles)
       float flash = step(0.98, sin(uTime * 3.0 + aRandom * 100.0));
       treeColor = mix(treeColor, vec3(1.0, 0.95, 0.6), flash * 0.5 * t);
 
@@ -123,15 +133,8 @@ const FoliageMaterial = shaderMaterial(
       vec2 center = gl_PointCoord - 0.5;
       float dist = length(center);
       if (dist > 0.5) discard;
-      
-      // Harder core, softer edge
       float strength = 1.0 - smoothstep(0.35, 0.5, dist);
-      
-      // Explicitly output color
       gl_FragColor = vec4(vColor, vAlpha * strength);
-      
-      // Colorspace fix: If the environment is very linear, manually boost gamma? 
-      // R3F handles this usually, but let's just ensure we output strong alpha.
     }
   `
 );
@@ -179,6 +182,32 @@ const getConeSurfacePoint = (height: number, maxRadius: number) => {
   const x = rAtHeight * Math.cos(theta);
   const z = rAtHeight * Math.sin(theta);
   return new THREE.Vector3(x, y - height / 2, z);
+};
+
+// --- Refactored Photo Logic for Robustness ---
+
+type PhotoItemData = {
+  treePos: THREE.Vector3;
+  scatterPos: THREE.Vector3;
+  url: string;
+};
+
+// Pre-calculate positions so we can render frames even if textures fail
+const generatePhotoData = (photos: string[]): PhotoItemData[] => {
+  const count = photos.length;
+  const height = 10;
+  return photos.map((url, i) => {
+    const pct = i / Math.max(1, count - 1);
+    const y = (1 - pct) * height - height / 2 + 1;
+    const r = 4.0 * (1 - (y + 6) / 12.5);
+    const theta = i * Math.PI * (3 - Math.sqrt(5)) * 10 + Math.PI / 4;
+
+    const treePos = new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)).multiplyScalar(1.2);
+    const scatterPos = getRandomSpherePoint(20);
+    scatterPos.y += 5;
+
+    return { treePos, scatterPos, url };
+  });
 };
 
 // --- UI Components ---
@@ -320,7 +349,6 @@ const Foliage = ({ isTree }: { isTree: boolean }) => {
         ref={materialRef}
         transparent
         depthWrite={false}
-        // Force NormalBlending to fix grey/washed-out artifacts
         blending={THREE.NormalBlending} 
         uColorBottom={new THREE.Color(PALETTE.emerald)}
         uColorTop={new THREE.Color(PALETTE.greenLight)}
@@ -340,7 +368,7 @@ const Ornaments = ({ isTree }: { isTree: boolean }) => {
     () =>
       new THREE.MeshPhysicalMaterial({
         roughness: 0.15,
-        metalness: 0.8, // Reduced metalness to avoid dark renders in low light
+        metalness: 0.8,
         clearcoat: 1.0,
         color: 0xffffff,
         vertexColors: true,
@@ -354,10 +382,8 @@ const Ornaments = ({ isTree }: { isTree: boolean }) => {
       const surface = getConeSurfacePoint(11.5, 3.8);
       surface.x *= 1.05;
       surface.z *= 1.05;
-
       const scatter = getRandomSpherePoint(18);
       scatter.y += 5;
-
       const scale = 0.12 + Math.random() * 0.18;
       const color = Math.random() > 0.4 ? PALETTE.gold : PALETTE.pink;
       data.push({ tree: surface, scatter, scale, color });
@@ -372,7 +398,6 @@ const Ornaments = ({ isTree }: { isTree: boolean }) => {
     if (!meshRef.current) return;
     mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 6.0 : 3.0, delta);
     const t = mixRef.current;
-
     instances.forEach((data, i) => {
       dummy.position.lerpVectors(data.scatter, data.tree, t);
       const time = state.clock.elapsedTime;
@@ -403,7 +428,6 @@ const Ornaments = ({ isTree }: { isTree: boolean }) => {
 const Diamonds = ({ isTree }: { isTree: boolean }) => {
   const count = 40;
   const meshRef = useRef<THREE.InstancedMesh | null>(null);
-
   const geometry = useMemo(() => new THREE.OctahedronGeometry(1, 0), []);
   const material = useMemo(
     () =>
@@ -418,7 +442,6 @@ const Diamonds = ({ isTree }: { isTree: boolean }) => {
       }),
     []
   );
-
   const instances = useMemo(() => {
     const data: { tree: THREE.Vector3; scatter: THREE.Vector3 }[] = [];
     for (let i = 0; i < count; i++) {
@@ -432,10 +455,8 @@ const Diamonds = ({ isTree }: { isTree: boolean }) => {
     }
     return data;
   }, []);
-
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const mixRef = useRef(0);
-
   useFrame((state, delta) => {
     if (!meshRef.current) return;
     mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 5.0 : 3.0, delta);
@@ -450,14 +471,12 @@ const Diamonds = ({ isTree }: { isTree: boolean }) => {
     });
     meshRef.current.instanceMatrix.needsUpdate = true;
   });
-
   return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
 };
 
 const Gifts = ({ isTree }: { isTree: boolean }) => {
   const count = 20;
   const meshRef = useRef<THREE.InstancedMesh | null>(null);
-
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 128;
@@ -474,10 +493,8 @@ const Gifts = ({ isTree }: { isTree: boolean }) => {
     tex.needsUpdate = true;
     return tex;
   }, []);
-
   const geometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
   const material = useMemo(() => new THREE.MeshStandardMaterial({ map: texture, roughness: 0.4 }), [texture]);
-
   const instances = useMemo(() => {
     const data: { tree: THREE.Vector3; scatter: THREE.Vector3; scale: number }[] = [];
     for (let i = 0; i < count; i++) {
@@ -491,15 +508,12 @@ const Gifts = ({ isTree }: { isTree: boolean }) => {
     }
     return data;
   }, []);
-
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const mixRef = useRef(0);
-
   useFrame((state, delta) => {
     if (!meshRef.current) return;
     mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 5.0 : 3.0, delta);
     const t = mixRef.current;
-
     instances.forEach((data, i) => {
       dummy.position.lerpVectors(data.scatter, data.tree, t);
       dummy.rotation.y = state.clock.elapsedTime * 0.1 + i;
@@ -507,19 +521,18 @@ const Gifts = ({ isTree }: { isTree: boolean }) => {
       dummy.updateMatrix();
       meshRef.current!.setMatrixAt(i, dummy.matrix);
     });
-
     meshRef.current.instanceMatrix.needsUpdate = true;
   });
-
   return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
 };
 
-const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect }: any) => {
+const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect, error }: any) => {
   const groupRef = useRef<THREE.Group | null>(null);
   const mixRef = useRef(0);
 
-  const width = (texture && texture.image && texture.image.width) || 1;
-  const height = (texture && texture.image && texture.image.height) || 1;
+  // Fallback dimensions if texture is missing/failed
+  const width = (texture && texture.image && texture.image.width) || 500;
+  const height = (texture && texture.image && texture.image.height) || 500;
   const aspect = width / height;
 
   const baseH = 1.0;
@@ -550,18 +563,45 @@ const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect
   return (
     <group
       ref={groupRef}
-      onClick={(e) => { e.stopPropagation(); onSelect(url); }}
-      onPointerOver={() => { document.body.style.cursor = "zoom-in"; }}
+      onClick={(e) => { e.stopPropagation(); if(!error) onSelect(url); }}
+      onPointerOver={() => { document.body.style.cursor = error ? "not-allowed" : "zoom-in"; }}
       onPointerOut={() => { document.body.style.cursor = "default"; }}
     >
       <mesh position={[0, 0, -0.01]}>
         <boxGeometry args={[frameW, frameH, 0.05]} />
-        <meshPhysicalMaterial color={PALETTE.gold} metalness={0.95} roughness={0.1} clearcoat={1} />
+        <meshPhysicalMaterial 
+          color={error ? PALETTE.error : PALETTE.gold} 
+          metalness={0.95} 
+          roughness={0.1} 
+          clearcoat={1} 
+        />
       </mesh>
+      
+      {/* Front Image or Error Placeholder */}
       <mesh>
         <planeGeometry args={[planeW, planeH]} />
-        <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
+        {error || !texture ? (
+           <meshBasicMaterial color="#330000" />
+        ) : (
+           <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
+        )}
       </mesh>
+
+      {/* Error Text Label if Failed */}
+      {error && (
+        <group position={[0, 0, 0.02]}>
+          <Text 
+            fontSize={0.2} 
+            color="white" 
+            anchorX="center" 
+            anchorY="middle"
+            maxWidth={planeW * 0.9}
+          >
+            CORS / ERROR
+          </Text>
+        </group>
+      )}
+
       <mesh position={[0, 0, -0.015]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[planeW, planeH]} />
         <meshStandardMaterial color={PALETTE.gold} roughness={0.5} />
@@ -570,50 +610,84 @@ const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect
   );
 };
 
-const PhotoGallery = ({ isTree, photos, onSelectPhoto }: { isTree: boolean; photos: string[]; onSelectPhoto: (url: string) => void }) => {
-  // If photos is empty or undefined, render nothing
-  if (!photos || photos.length === 0) return null;
-
-  // useTexture is suspense-driven. If it fails, it throws a promise or error.
-  // The boundary above catches errors. 
-  // We use reliable URLs now, but let's handle the array gracefully.
-  const textures = useTexture(photos);
-  
-  // useTexture returns an array if input is array, but let's be safe
+// Component that actually suspends
+const LoadedTextures = ({ data, isTree, onSelectPhoto }: { data: PhotoItemData[]; isTree: boolean; onSelectPhoto: (url: string) => void }) => {
+  const urls = data.map(d => d.url);
+  const textures = useTexture(urls);
   const textureArray = Array.isArray(textures) ? textures : [textures];
-
-  const items = useMemo(() => {
-    return textureArray.map((texture, i) => {
-      const count = textureArray.length;
-      const height = 10;
-      const pct = i / Math.max(1, count - 1);
-      const y = (1 - pct) * height - height / 2 + 1;
-      const r = 4.0 * (1 - (y + 6) / 12.5);
-      const theta = i * Math.PI * (3 - Math.sqrt(5)) * 10 + Math.PI / 4;
-
-      const treePos = new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)).multiplyScalar(1.2);
-      const scatterPos = getRandomSpherePoint(20);
-      scatterPos.y += 5;
-
-      return { texture, treePos, scatterPos, url: photos[i] };
-    });
-  }, [textureArray, photos]);
 
   return (
     <group>
-      {items.map((item, i) => (
+      {data.map((item, i) => (
         <PhotoFrame
           key={i}
           index={i}
           isTree={isTree}
-          texture={item.texture}
+          texture={textureArray[i]}
           treePos={item.treePos}
           scatterPos={item.scatterPos}
           url={item.url}
           onSelect={onSelectPhoto}
+          error={false}
         />
       ))}
     </group>
+  );
+};
+
+// Fallback component when textures fail (e.g. CORS)
+const FallbackFrames = ({ data, isTree }: { data: PhotoItemData[]; isTree: boolean }) => {
+  return (
+    <group>
+      {data.map((item, i) => (
+        <PhotoFrame
+          key={i}
+          index={i}
+          isTree={isTree}
+          texture={null}
+          treePos={item.treePos}
+          scatterPos={item.scatterPos}
+          url={item.url}
+          onSelect={() => {}}
+          error={true}
+        />
+      ))}
+    </group>
+  );
+};
+
+class TextureErrorBoundary extends React.Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any) {
+    console.warn("PhotoGallery Texture Error (likely CORS):", error);
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+const PhotoGallery = ({ isTree, photos, onSelectPhoto }: { isTree: boolean; photos: string[]; onSelectPhoto: (url: string) => void }) => {
+  if (!photos || photos.length === 0) return null;
+
+  // Memoize positions so they are stable regardless of texture loading status
+  const photoData = useMemo(() => generatePhotoData(photos), [photos]);
+
+  return (
+    <TextureErrorBoundary fallback={<FallbackFrames data={photoData} isTree={isTree} />}>
+      <Suspense fallback={<FallbackFrames data={photoData} isTree={isTree} />}>
+        <LoadedTextures data={photoData} isTree={isTree} onSelectPhoto={onSelectPhoto} />
+      </Suspense>
+    </TextureErrorBoundary>
   );
 };
 
@@ -631,7 +705,6 @@ const FairyLights = ({ isTree }: { isTree: boolean }) => {
       }),
     []
   );
-
   const instances = useMemo(() => {
     const data: { tree: THREE.Vector3; scatter: THREE.Vector3 }[] = [];
     const turns = 10;
@@ -649,10 +722,8 @@ const FairyLights = ({ isTree }: { isTree: boolean }) => {
     }
     return data;
   }, []);
-
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const mixRef = useRef(0);
-
   useFrame((state, delta) => {
     if (!meshRef.current) return;
     mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 6.0 : 3.0, delta);
@@ -668,14 +739,12 @@ const FairyLights = ({ isTree }: { isTree: boolean }) => {
     });
     meshRef.current.instanceMatrix.needsUpdate = true;
   });
-
   return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
 };
 
 const Star = ({ isTree }: { isTree: boolean }) => {
   const ref = useRef<THREE.Group | null>(null);
   const scatterPos = useMemo(() => new THREE.Vector3(0, 10, 0), []);
-
   useFrame((state, delta) => {
     if (ref.current) {
       ref.current.rotation.y += delta * 0.8;
@@ -688,7 +757,6 @@ const Star = ({ isTree }: { isTree: boolean }) => {
       ref.current.scale.setScalar(newScale);
     }
   });
-
   return (
     <group ref={ref}>
       <mesh>
@@ -713,11 +781,9 @@ const BackgroundParticles = () => {
     }
     return pos;
   });
-
   useFrame((state, delta) => {
     if (meshRef.current) meshRef.current.rotation.y += delta * 0.02;
   });
-
   return (
     <points ref={meshRef}>
       <bufferGeometry>
@@ -727,23 +793,6 @@ const BackgroundParticles = () => {
     </points>
   );
 };
-
-class TextureErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(error: any) {
-    console.warn("Failed to load textures. PhotoGallery disabled.", error);
-  }
-  render() {
-    if (this.state.hasError) return null;
-    return this.props.children;
-  }
-}
 
 const Scene = ({ isTree, toggleTree, customPhotos, onSelectPhoto }: { isTree: boolean; toggleTree: () => void; customPhotos: string[]; onSelectPhoto: (url: string) => void }) => {
   return (
@@ -758,37 +807,29 @@ const Scene = ({ isTree, toggleTree, customPhotos, onSelectPhoto }: { isTree: bo
         autoRotate={isTree}
         autoRotateSpeed={0.5}
       />
-
       <Environment preset="city" background={false} blur={0.8} />
-
       <ambientLight intensity={0.4} color={PALETTE.emerald} />
       <spotLight position={[10, 20, 10]} intensity={8} angle={0.6} penumbra={1} color={PALETTE.goldLight} castShadow shadow-bias={-0.0001} />
       <pointLight position={[-10, 5, -10]} intensity={4} color={PALETTE.pinkDeep} />
       <spotLight position={[0, 10, -15]} intensity={6} color="#cceeff" angle={1} />
-
       <group position={[0, -2, 0]}>
         <Float speed={isTree ? 2 : 0.5} rotationIntensity={isTree ? 0.2 : 0.05} floatIntensity={isTree ? 0.5 : 0.1}>
           <Foliage isTree={isTree} />
           <Ornaments isTree={isTree} />
           <Diamonds isTree={isTree} />
           <Gifts isTree={isTree} />
-          <TextureErrorBoundary>
-            <Suspense fallback={null}>
-              <PhotoGallery isTree={isTree} photos={customPhotos} onSelectPhoto={onSelectPhoto} />
-            </Suspense>
-          </TextureErrorBoundary>
+          
+          <PhotoGallery isTree={isTree} photos={customPhotos} onSelectPhoto={onSelectPhoto} />
+          
           <FairyLights isTree={isTree} />
           <Star isTree={isTree} />
         </Float>
       </group>
-
       <BackgroundParticles />
-
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -6, 0]} receiveShadow>
         <planeGeometry args={[100, 100]} />
         <meshStandardMaterial color={PALETTE.emerald} roughness={0.2} metalness={0.6} />
       </mesh>
-
       <EffectComposer enableNormalPass={false}>
         <Bloom luminanceThreshold={0.8} mipmapBlur intensity={1.0} radius={0.5} />
         <Noise opacity={0.05} />
@@ -801,19 +842,16 @@ const Scene = ({ isTree, toggleTree, customPhotos, onSelectPhoto }: { isTree: bo
 const App = () => {
   const [isTree, setIsTree] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
-
   return (
     <>
       <UIOverlay toggleTree={() => setIsTree((s) => !s)} />
       <MusicPlayer />
       <Lightbox src={selectedPhoto} onClose={() => setSelectedPhoto(null)} />
-
       <Canvas shadows dpr={[1, 2]} gl={{ antialias: false, toneMapping: THREE.CineonToneMapping, toneMappingExposure: 1.2 }}>
         <Suspense fallback={null}>
           <Scene isTree={isTree} toggleTree={() => setIsTree((s) => !s)} customPhotos={USER_PHOTOS} onSelectPhoto={setSelectedPhoto} />
         </Suspense>
       </Canvas>
-
       <Suspense fallback={<LoadingScreen />}>
         <group />
       </Suspense>
@@ -828,3 +866,4 @@ if (rootEl) {
 } else {
   console.error("Root element #root not found");
 }
+
