@@ -20,9 +20,9 @@ import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocess
 const BASE_PHOTOS = [
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image1.jpg", // Red ornaments
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Green/Gold bokeh
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image8.JPG", // Green/Gold bokeh
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image2.jpg", // Sparkles
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/xmas/images/image6.JPG"  // Christmas tree and gifts
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Green/Gold bokeh
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg", // Sparkles
+  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg"  // Christmas tree and gifts
 ];
 
 // 自动生成 10 张照片的数组
