@@ -1,37 +1,27 @@
+
 import React, { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
-import { Canvas, useFrame, extend, Object3DNode } from "@react-three/fiber";
+import { Canvas, useFrame, extend, ThreeElement, useThree } from "@react-three/fiber";
 import {
   OrbitControls,
   Float,
   Environment,
   PerspectiveCamera,
   shaderMaterial,
+  Stars,
+  ContactShadows,
 } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocessing";
 
-// ================= 类型定义 (消除 TS 报错) =================
-
-// 扩展 Three 元素类型，以便 R3F 识别自定义 shader
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      foliageMaterial: Object3DNode<THREE.ShaderMaterial, typeof FoliageMaterial> & {
-        uTime?: number;
-        uMix?: number;
-        uColorBottom?: THREE.Color;
-        uColorTop?: THREE.Color;
-        uPixelRatio?: number;
-        transparent?: boolean;
-        depthWrite?: boolean;
-        blending?: THREE.Blending;
-      };
-    }
-  }
+/**
+ * CRITICAL: Resolve "Multiple instances of Three.js"
+ */
+if (typeof window !== "undefined") {
+  (window as any).THREE = THREE;
 }
 
-/* ================= 资源配置 ================= */
+/* ================= Configuration ================= */
 
 const USER_PROVIDED_PHOTOS = [
   "https://img.heliar.top/file/1766344105890_IMG_2593.jpeg",
@@ -49,9 +39,7 @@ const BACKUP_PHOTOS = [
   "https://images.unsplash.com/photo-1512389142860-9c449e58a543?w=600&q=80",
 ];
 
-// 注意：原链接看起来像临时链接，这里换成了一个稳定的免费音频源作为演示。
-// 如果要在生产环境使用，建议将 mp3 放在 public 文件夹下，用 "/music.mp3" 引用。
-const BACKGROUND_MUSIC_URL = "https://cdn.pixabay.com/download/audio/2022/10/18/audio_31c2730e64.mp3";
+const BACKGROUND_MUSIC_URL = "https://cs1.mp3.pm/download/139557278/TGlCay9pSE9kbG04WjdwMDJNbnFsNGx5aEt0aFhnVllEby9jaTVGcXk1T1JrWU5XVnM1QUNzeUI4NlJJazIrU1QwREFPc0tRS2ZrL3BCSVJnU1Y3SFBHaVNGNnNmVHIvYmVYNk93N1ExdHoxc0FrZUJUV25TOXRjS05ETWdWbVc/back_number_-_full_(mp3.pm).mp3"; 
 
 const PALETTE = {
   bg: "#02120b",
@@ -62,37 +50,35 @@ const PALETTE = {
   pinkDeep: "#d66ba0",
 };
 
-/* ================= 数学工具 ================= */
+/* ================= Utils ================= */
 
-const damp = (c: number, t: number, l: number, d: number) =>
-  THREE.MathUtils.lerp(c, t, 1 - Math.exp(-l * d));
+const damp = (c: number, t: number, l: number, d: number) => THREE.MathUtils.lerp(c, t, 1 - Math.exp(-l * d));
 
 const getRandomSpherePoint = (r: number) => {
   const theta = Math.random() * Math.PI * 2;
   const v = Math.random();
   const phi = Math.acos(2 * v - 1);
   const rad = Math.cbrt(Math.random()) * r;
-  return new THREE.Vector3(
-    rad * Math.sin(phi) * Math.cos(theta),
-    rad * Math.sin(phi) * Math.sin(theta),
-    rad * Math.cos(phi)
-  );
+  return new THREE.Vector3(rad * Math.sin(phi) * Math.cos(theta), rad * Math.sin(phi) * Math.sin(theta), rad * Math.cos(phi));
 };
 
 const getRandomConePoint = (h: number, r: number) => {
-  const hRaw = 1 - Math.cbrt(Math.random());
+  const hRaw = 1 - Math.cbrt(Math.random()); 
   const y = hRaw * h;
   const rad = r * (1 - y / h);
   const theta = Math.random() * Math.PI * 2;
   const dist = Math.sqrt(Math.random()) * rad;
-  return new THREE.Vector3(
-    dist * Math.cos(theta),
-    y - h / 2,
-    dist * Math.sin(theta)
-  );
+  return new THREE.Vector3(dist * Math.cos(theta), y - h / 2, dist * Math.sin(theta));
 };
 
-/* ================= Shader Material ================= */
+const getConeSurfacePoint = (h: number, r: number) => {
+  const y = Math.random() * h;
+  const rad = r * (1 - y / h);
+  const theta = Math.random() * Math.PI * 2;
+  return new THREE.Vector3(rad * Math.cos(theta), y - h / 2, rad * Math.sin(theta));
+};
+
+/* ================= Custom Materials ================= */
 
 const FoliageMaterial = shaderMaterial(
   {
@@ -100,421 +86,498 @@ const FoliageMaterial = shaderMaterial(
     uMix: 0,
     uColorBottom: new THREE.Color(PALETTE.emerald),
     uColorTop: new THREE.Color(PALETTE.greenLight),
-    uPixelRatio: typeof window !== "undefined" ? Math.min(window.devicePixelRatio, 2) : 1,
+    uColorGold: new THREE.Color(PALETTE.goldLight),
+    uPixelRatio: 1,
   },
-  // Vertex Shader
   `
-  precision highp float;
-  uniform float uTime;
-  uniform float uMix;
-  uniform float uPixelRatio;
-  uniform vec3 uColorBottom;
-  uniform vec3 uColorTop;
+    precision highp float;
+    uniform float uTime;
+    uniform float uMix;
+    uniform float uPixelRatio;
+    uniform vec3 uColorBottom;
+    uniform vec3 uColorTop;
+    attribute vec3 aScatterPos;
+    attribute vec3 aTreePos;
+    attribute float aRandom;
+    varying vec3 vColor;
+    varying float vAlpha;
+    varying float vRandom;
 
-  attribute vec3 aScatterPos;
-  attribute vec3 aTreePos;
-  attribute float aRandom;
+    void main() {
+      vRandom = aRandom;
+      vec3 pos = mix(aScatterPos, aTreePos, uMix);
+      float flow = uTime * (0.1 + aRandom * 0.1);
+      pos.x += cos(flow + pos.y * 1.0) * 0.05 * uMix;
+      pos.z += sin(flow + pos.y * 1.0) * 0.05 * uMix;
+      pos.y += sin(uTime * 0.6 + aRandom * 10.0) * 0.03;
+      
+      vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+      gl_Position = projectionMatrix * mvPosition;
+      
+      // Reduce point size significantly to avoid "light ball" effect
+      float sizeBase = mix(9.0, 5.5, uMix); 
+      float size = (sizeBase + aRandom * 6.0) * uPixelRatio;
+      size *= (32.0 / max(0.4, -mvPosition.z)); 
+      gl_PointSize = clamp(size, 0.0, 50.0);
 
-  varying vec3 vColor;
-  varying float vAlpha;
-
-  void main() {
-    vec3 pos = mix(aScatterPos, aTreePos, uMix);
-
-    // 树形态时的微动风效
-    if (uMix > 0.5) {
-      pos.x += cos(uTime + aRandom * 10.0) * 0.15 * uMix;
-      pos.z += sin(uTime + aRandom * 10.0) * 0.15 * uMix;
-      pos.y += sin(uTime + aRandom * 6.0) * 0.1 * uMix;
+      float heightPct = (aTreePos.y + 6.0) / 12.0;
+      float pulse = 0.85 + 0.15 * sin(uTime * 0.7 + aRandom * 12.0);
+      vColor = mix(uColorBottom, uColorTop, heightPct) * pulse;
+      
+      // Smoother transition for alpha
+      vAlpha = mix(0.7, 1.0, uMix) * (0.6 + 0.4 * sin(uTime * 0.5 + aRandom * 6.0));
     }
-
-    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-    gl_Position = projectionMatrix * mv;
-
-    float size = (8.0 + aRandom * 6.0) * uPixelRatio;
-    size *= (15.0 / max(0.5, -mv.z));
-    gl_PointSize = clamp(size, 0.0, 100.0);
-
-    float h = (aTreePos.y + 6.0) / 12.0;
-    vColor = mix(uColorBottom, uColorTop, h);
-    vAlpha = 0.8 + 0.2 * uMix;
-  }
   `,
-  // Fragment Shader
   `
-  precision highp float;
-  varying vec3 vColor;
-  varying float vAlpha;
+    precision highp float;
+    uniform float uTime;
+    uniform vec3 uColorGold;
+    varying vec3 vColor;
+    varying float vAlpha;
+    varying float vRandom;
 
-  void main() {
-    float d = length(gl_PointCoord - 0.5);
-    if (d > 0.5) discard;
-    float s = 1.0 - smoothstep(0.2, 0.5, d);
-    gl_FragColor = vec4(vColor, vAlpha * s);
-  }
+    void main() {
+      vec2 center = vec2(0.5, 0.5);
+      float dist = length(gl_PointCoord - center);
+      if (dist > 0.5) discard;
+
+      // Refined Specular Shimmer (Sequin effect)
+      // Highlight is smaller and sharper to avoid "glowing orb" look
+      vec2 highlightPos = vec2(0.38, 0.38);
+      float highlight = 1.0 - smoothstep(0.0, 0.15, length(gl_PointCoord - highlightPos));
+      highlight = pow(highlight, 4.0); 
+
+      // Added temporal glitter flickering for a more magical feel
+      float glitter = step(0.96, fract(uTime * 1.2 + vRandom * 100.0));
+      
+      vec3 col = vColor;
+      // Mix in gold specular and glitter sparkles
+      col = mix(col, uColorGold, highlight * 0.9 + glitter * 0.4);
+
+      // Sharp circle falloff
+      float alpha = vAlpha * (1.0 - smoothstep(0.4, 0.5, dist));
+      gl_FragColor = vec4(col, alpha);
+    }
   `
 );
 
-extend({ FoliageMaterial });
-
-/* ================= 粒子树组件 ================= */
-
-const Foliage = ({ isTree }: { isTree: boolean }) => {
-  const count = 4000;
-  const mat = useRef<any>(null);
-
-  const data = useMemo(() => {
-    const scatter = new Float32Array(count * 3);
-    const tree = new Float32Array(count * 3);
-    const rnd = new Float32Array(count);
-
-    for (let i = 0; i < count; i++) {
-      const s = getRandomSpherePoint(18);
-      s.y += 5;
-      const t = getRandomConePoint(13, 4.5);
-      scatter.set([s.x, s.y, s.z], i * 3);
-      tree.set([t.x, t.y, t.z], i * 3);
-      rnd[i] = Math.random();
+const SignatureFloorMaterial = shaderMaterial(
+  { uTime: 0, uColor: new THREE.Color(PALETTE.emerald), uGold: new THREE.Color(PALETTE.gold) },
+  `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
-    return { scatter, tree, rnd };
+  `,
+  `
+    uniform float uTime;
+    uniform vec3 uColor;
+    uniform vec3 uGold;
+    varying vec2 vUv;
+    void main() {
+      float dist = length(vUv - 0.5);
+      float alpha = smoothstep(0.5, 0.1, dist);
+      vec3 col = mix(vec3(0.0, 0.003, 0.001), uColor * 0.08, (1.0 - dist * 2.2));
+      float shim = smoothstep(0.12, 0.0, abs(dist - 0.25)) * 0.035;
+      col += uGold * shim * (0.6 + 0.4 * sin(uTime * 0.45));
+      gl_FragColor = vec4(col, alpha * 0.75);
+    }
+  `
+);
+
+extend({ FoliageMaterial, SignatureFloorMaterial });
+
+declare global {
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements {
+        foliageMaterial: ThreeElement<typeof FoliageMaterial> & { uTime?: number; uMix?: number; uColorBottom?: THREE.Color; uColorTop?: THREE.Color; uColorGold?: THREE.Color; uPixelRatio?: number; };
+        signatureFloorMaterial: ThreeElement<typeof SignatureFloorMaterial> & { uTime?: number; uColor?: THREE.Color; uGold?: THREE.Color; };
+      }
+    }
+  }
+}
+
+/* ================= Custom Star Geometry ================= */
+
+function createStarShape() {
+  const shape = new THREE.Shape();
+  const innerRadius = 0.4;
+  const outerRadius = 1.0;
+  for (let i = 0; i < 10; i++) {
+    const angle = (i * Math.PI) / 5;
+    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
+}
+
+/* ================= Components ================= */
+
+const Snow = () => {
+  const count = 300; 
+  const mesh = useRef<THREE.Points>(null!);
+  const [positions] = useState(() => {
+    const pos = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      pos.set([(Math.random() - 0.5) * 60, Math.random() * 50 - 10, (Math.random() - 0.5) * 60], i * 3);
+    }
+    return pos;
+  });
+
+  useFrame((state) => {
+    const time = state.clock.elapsedTime * 0.1;
+    const array = mesh.current.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < count; i++) {
+      let y = array[i * 3 + 1];
+      y -= 0.02;
+      if (y < -15) y = 35;
+      array[i * 3 + 1] = y;
+      array[i * 3] += Math.sin(time + i) * 0.005;
+    }
+    mesh.current.geometry.attributes.position.needsUpdate = true;
+  });
+
+  return (
+    <points ref={mesh}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={positions} />
+      </bufferGeometry>
+      <pointsMaterial size={0.06} color="white" transparent opacity={0.06} />
+    </points>
+  );
+};
+
+const MusicPlayer = () => {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = new Audio(BACKGROUND_MUSIC_URL);
+    audio.loop = true;
+    audio.volume = 0.1;
+    audioRef.current = audio;
+    return () => { if (audioRef.current) audioRef.current.pause(); };
   }, []);
 
+  const toggle = () => {
+    if (!audioRef.current) return;
+    if (playing) audioRef.current.pause();
+    else audioRef.current.play().catch(console.error);
+    setPlaying(!playing);
+  };
+
+  return (
+    <div style={{ position: "fixed", top: "25px", right: "25px", zIndex: 1000, pointerEvents: "auto" }}>
+      <button className="magic-button" onClick={toggle} style={{ padding: "10px 20px", fontSize: "0.7rem", minWidth: "130px" }}>
+        {playing ? "🔊 MUSIC ON" : "🔈 MUSIC OFF"}
+      </button>
+    </div>
+  );
+};
+
+const Foliage = ({ isTree }: { isTree: boolean }) => {
+  const count = 4500; // Increased count slightly for density as size is smaller
+  const materialRef = useRef<any>(null);
+  const [data] = useState(() => {
+    const sPos = new Float32Array(count * 3), tPos = new Float32Array(count * 3), rnd = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const s = getRandomSpherePoint(26); s.y += 5;
+      const t = getRandomConePoint(13, 4.6);
+      sPos.set([s.x, s.y, s.z], i * 3);
+      tPos.set([t.x, t.y, t.z], i * 3);
+      rnd[i] = Math.random();
+    }
+    return { sPos, tPos, rnd };
+  });
+
   useFrame((state, delta) => {
-    if (!mat.current) return;
-    mat.current.uTime = state.clock.elapsedTime;
-    mat.current.uMix = damp(mat.current.uMix, isTree ? 1 : 0, 3, delta);
+    if (materialRef.current) {
+      materialRef.current.uTime = state.clock.elapsedTime;
+      materialRef.current.uMix = damp(materialRef.current.uMix, isTree ? 1 : 0, 3, delta);
+    }
   });
 
   return (
     <points frustumCulled={false}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} array={data.scatter} itemSize={3} />
-        <bufferAttribute attach="attributes-aScatterPos" count={count} array={data.scatter} itemSize={3} />
-        <bufferAttribute attach="attributes-aTreePos" count={count} array={data.tree} itemSize={3} />
-        <bufferAttribute attach="attributes-aRandom" count={count} array={data.rnd} itemSize={1} />
+        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={data.tPos} />
+        <bufferAttribute attach="attributes-aTreePos" count={count} itemSize={3} array={data.tPos} />
+        <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={data.sPos} />
+        <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={data.rnd} />
       </bufferGeometry>
-      <foliageMaterial ref={mat} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
+      <foliageMaterial ref={materialRef} transparent depthWrite={false} blending={THREE.AdditiveBlending} uPixelRatio={window.devicePixelRatio} />
     </points>
   );
 };
 
-/* ================= 照片系统 (优化版) ================= */
+const GroundEffect = () => {
+  const floorRef = useRef<any>(null);
+  useFrame((state) => {
+    if (floorRef.current) floorRef.current.uTime = state.clock.elapsedTime;
+  });
+  return (
+    <group position={[0, -11.6, 0]}>
+      <ContactShadows opacity={0.25} scale={24} blur={6} far={10} color="#000000" position={[0, 0.01, 0]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[32, 32]} />
+        <signatureFloorMaterial 
+          ref={floorRef} 
+          transparent 
+          uColor={new THREE.Color(PALETTE.emerald)} 
+          uGold={new THREE.Color(PALETTE.gold)} 
+        />
+      </mesh>
+    </group>
+  );
+};
+
+const Ornaments = ({ isTree }: { isTree: boolean }) => {
+  const count = 75;
+  const meshRef = useRef<THREE.InstancedMesh>(null!);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), []);
+  const material = useMemo(() => new THREE.MeshPhysicalMaterial({ 
+    roughness: 0.0, 
+    metalness: 1.0, 
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.0,
+    reflectivity: 1.0,
+    envMapIntensity: 2.2,
+    emissive: new THREE.Color("#111111"),
+    emissiveIntensity: 0.9
+  }), []);
+
+  const data = useMemo(() => Array.from({ length: count }, () => ({
+    tree: getConeSurfacePoint(12.2, 4.4).multiplyScalar(1.02),
+    scatter: getRandomSpherePoint(26).add(new THREE.Vector3(0, 5, 0)),
+    scale: 0.12 + Math.random() * 0.12,
+    color: Math.random() > 0.5 ? PALETTE.gold : PALETTE.pinkDeep
+  })), []);
+
+  const mixVal = useRef(0);
+  useFrame((state, delta) => {
+    mixVal.current = damp(mixVal.current, isTree ? 1 : 0, 4, delta);
+    data.forEach((d, i) => {
+      dummy.position.lerpVectors(d.scatter, d.tree, mixVal.current);
+      dummy.scale.setScalar(d.scale * (0.3 + 0.7 * mixVal.current));
+      dummy.updateMatrix();
+      meshRef.current.setMatrixAt(i, dummy.matrix);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  });
+
+  useEffect(() => {
+    data.forEach((d, i) => {
+      meshRef.current.setColorAt(i, new THREE.Color(d.color));
+    });
+    meshRef.current.instanceColor!.needsUpdate = true;
+  }, [data]);
+
+  return <instancedMesh ref={meshRef} args={[geometry, material, count]} />;
+};
 
 const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) => {
-  const group = useRef<THREE.Group>(null);
-  const mix = useRef(0);
+  const group = useRef<THREE.Group>(null!);
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
-  const [aspect, setAspect] = useState(1); // 记录图片宽高比
+  const [aspect, setAspect] = useState(1);
+  const mix = useRef(0);
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
-    // 允许跨域
     loader.setCrossOrigin("Anonymous");
-
-    const handleLoad = (t: THREE.Texture) => {
-      // 颜色空间校正，必须设置，否则图片发白
-      t.colorSpace = THREE.SRGBColorSpace; 
-      
-      // 计算宽高比
-      if (t.image) {
-        setAspect(t.image.width / t.image.height);
-      }
+    loader.load(url, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      if (t.image) setAspect(t.image.width / t.image.height);
       setTexture(t);
-    };
-
-    const handleError = () => {
-      // 加载失败时使用备用图
-      loader.load(BACKUP_PHOTOS[index % BACKUP_PHOTOS.length], (backupT) => {
-        backupT.colorSpace = THREE.SRGBColorSpace;
-        setTexture(backupT);
+    }, undefined, () => {
+      loader.load(BACKUP_PHOTOS[index % BACKUP_PHOTOS.length], (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        setTexture(t);
       });
-    };
-
-    loader.load(url, handleLoad, undefined, handleError);
-
-    return () => {
-      if (texture) texture.dispose();
-    };
+    });
   }, [url, index]);
 
-  useFrame((_, delta) => {
-    if (!group.current) return;
+  useFrame((state, delta) => {
     mix.current = damp(mix.current, isTree ? 1 : 0, 4, delta);
     group.current.position.lerpVectors(scatterPos, treePos, mix.current);
-    
-    // 始终面向中心轴，但保持垂直
-    group.current.lookAt(0, group.current.position.y, 0);
-    
-    // 树形态时稍微缩小
-    const scale = isTree ? 0.8 : 1.2;
-    group.current.scale.setScalar(scale);
+    if (isTree && mix.current > 0.8) {
+      group.current.lookAt(0, group.current.position.y, 0);
+      group.current.rotateY(Math.PI);
+    } else {
+      group.current.rotation.y = state.clock.elapsedTime * 0.08 + index;
+    }
+    group.current.scale.setScalar(isTree ? 0.55 : 1.1);
   });
 
-  // 基础高度
-  const baseHeight = 1.2;
-  // 基础宽度 = 高度 * 宽高比
-  const baseWidth = baseHeight * aspect;
+  const h = 1.35;
+  const w = h * aspect;
 
   return (
-    <group ref={group} onClick={(e) => (e.stopPropagation(), onSelect(url))}>
-      <mesh>
-        {/* 动态调整几何体形状，防止拉伸 */}
-        <planeGeometry args={[baseWidth, baseHeight]} />
-        {texture ? (
-          <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent />
-        ) : (
-          <meshBasicMaterial color="#333" />
-        )}
+    <group ref={group} onClick={(e) => { e.stopPropagation(); onSelect(url); }}>
+      <mesh position={[0, 0, -0.015]}>
+        <boxGeometry args={[w + 0.1, h + 0.1, 0.05]} />
+        <meshPhysicalMaterial color={PALETTE.gold} metalness={1.0} roughness={0.05} emissive={PALETTE.gold} emissiveIntensity={0.25} />
       </mesh>
-      {/* 边框效果 */}
-      <mesh position={[0, 0, -0.01]}>
-        <planeGeometry args={[baseWidth + 0.1, baseHeight + 0.1]} />
-        <meshBasicMaterial color={PALETTE.bg} />
+      <mesh position={[0, 0, 0.012]}>
+        <planeGeometry args={[w, h]} />
+        {texture ? <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.98} /> : <meshBasicMaterial color="#111" />}
       </mesh>
     </group>
   );
 };
 
 const PhotoGallery = ({ isTree, onSelect }: any) => {
-  const items = useMemo(
-    () =>
-      Array.from({ length: USER_PROVIDED_PHOTOS.length }, (_, i) => {
-        // 螺旋排布算法
-        const y = (1 - i / USER_PROVIDED_PHOTOS.length) * 10 - 4;
-        const r = 4.5 * (1 - (y + 5) / 12) + 0.5; // 稍微向外扩一点
-        const a = i * 2.4; // 角度步进
-        return {
-          url: USER_PROVIDED_PHOTOS[i],
-          treePos: new THREE.Vector3(r * Math.cos(a), y, r * Math.sin(a)),
-          scatterPos: getRandomSpherePoint(22).add(new THREE.Vector3(0, 5, 0)),
-        };
-      }),
-    []
+  const items = useMemo(() => USER_PROVIDED_PHOTOS.map((url, i) => {
+    const y = (1 - i / USER_PROVIDED_PHOTOS.length) * 10 - 4.5;
+    const r = 4.6 * (1 - (y + 5) / 12) + 0.6;
+    const theta = i * 2.5;
+    return {
+      url,
+      treePos: new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)),
+      scatterPos: getRandomSpherePoint(28).add(new THREE.Vector3(0, 5, 0))
+    };
+  }), []);
+  return <group>{items.map((p, i) => <PhotoItem key={i} index={i} isTree={isTree} {...p} onSelect={onSelect} />)}</group>;
+};
+
+const StarTop = ({ isTree }: { isTree: boolean }) => {
+  const ref = useRef<THREE.Group>(null!);
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const shape = useMemo(() => createStarShape(), []);
+  const extrudeSettings = useMemo(() => ({ depth: 0.22, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelSegments: 3 }), []);
+
+  useFrame((state, delta) => {
+    meshRef.current.rotation.y += delta * 2.0;
+    const targetY = isTree ? 7.2 : 40;
+    ref.current.position.y = damp(ref.current.position.y, targetY, 4, delta);
+    ref.current.scale.setScalar(isTree ? 1.4 : 0.01);
+  });
+
+  return (
+    <group ref={ref} position={[0, 15, 0]}>
+      <mesh ref={meshRef}> 
+        <extrudeGeometry args={[shape, extrudeSettings]} />
+        <meshStandardMaterial color={PALETTE.gold} emissive={PALETTE.gold} emissiveIntensity={4.5} toneMapped={false} />
+      </mesh>
+      <pointLight color={PALETTE.gold} intensity={14} distance={22} />
+    </group>
   );
+};
+
+const Scene = ({ isTree, onSelectPhoto }: any) => {
+  const { size } = useThree();
+  const isMobile = size.width < size.height;
+  const fov = isMobile ? 65 : 45;
+  const cameraDist = isMobile ? 38 : 30;
 
   return (
     <>
-      {items.map((p, i) => (
-        <PhotoItem key={i} index={i} isTree={isTree} {...p} onSelect={onSelect} />
-      ))}
+      <PerspectiveCamera makeDefault position={[0, 4, cameraDist]} fov={fov} />
+      <OrbitControls autoRotate autoRotateSpeed={0.2} enablePan={false} maxPolarAngle={Math.PI / 1.75} minDistance={12} maxDistance={75} />
+      
+      <Environment preset="night" />
+      <ambientLight intensity={0.3} />
+      <spotLight position={[20, 50, 20]} intensity={60} color={PALETTE.goldLight} angle={0.4} penumbra={1} castShadow />
+      <pointLight position={[-15, 10, -15]} intensity={10} color={PALETTE.pinkDeep} />
+
+      <Stars radius={150} depth={80} count={5000} factor={6} saturation={0} fade speed={1.5} />
+      <Snow />
+
+      <group position={[0, -2.5, 0]}>
+        <Float speed={1.5} rotationIntensity={0.05} floatIntensity={0.1}>
+          <Foliage isTree={isTree} />
+          <Ornaments isTree={isTree} />
+          <PhotoGallery isTree={isTree} onSelect={onSelectPhoto} />
+          <StarTop isTree={isTree} />
+        </Float>
+      </group>
+      
+      <GroundEffect />
+
+      <EffectComposer enableNormalPass={false} multisampling={0}>
+        <Bloom luminanceThreshold={0.5} intensity={1.1} mipmapBlur radius={0.5} />
+        <Vignette eskil={false} offset={0.1} darkness={0.8} />
+        <Noise opacity={0.01} />
+      </EffectComposer>
     </>
   );
 };
 
-/* ================= 顶部星星 ================= */
+/* ================= UI Components ================= */
 
-const Star = ({ isTree }: { isTree: boolean }) => {
-  const ref = useRef<THREE.Group>(null);
-  useFrame((_, delta) => {
-    if (!ref.current) return;
-    ref.current.rotation.y += delta * 1.5;
-    // 树模式下星星在顶部，散落模式下飞向高空
-    ref.current.position.y = damp(ref.current.position.y, isTree ? 6.8 : 20, 4, delta);
-    // 散落模式下缩小
-    const scale = damp(ref.current.scale.x, isTree ? 1 : 0, 4, delta);
-    ref.current.scale.setScalar(scale);
-  });
-  return (
-    <group ref={ref} position={[0, 12, 0]}>
-      <mesh>
-        <octahedronGeometry args={[0.8, 0]} />
-        <meshStandardMaterial 
-            color={PALETTE.gold} 
-            emissive={PALETTE.gold} 
-            emissiveIntensity={2} 
-            toneMapped={false} 
-        />
-      </mesh>
-      <pointLight distance={10} intensity={5} color={PALETTE.gold} />
-    </group>
-  );
-};
-
-/* ================= 主场景 ================= */
-
-const Scene = ({ isTree, onSelect }: any) => (
-  <>
-    <PerspectiveCamera makeDefault position={[0, 2, 18]} fov={50} />
-    <OrbitControls 
-        autoRotate={isTree} // 仅在树模式下自动旋转
-        autoRotateSpeed={0.5} 
-        enablePan={false} 
-        maxPolarAngle={Math.PI / 1.4} // 限制视角不能钻到地底
-        minDistance={5}
-        maxDistance={30}
-    />
-    
-    <Environment preset="night" background={false} />
-    
-    <ambientLight intensity={0.2} />
-    <spotLight position={[10, 15, 10]} intensity={10} color={PALETTE.goldLight} angle={0.5} penumbra={1} />
-
-    <group position={[0, -2, 0]}>
-      <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
-        <Foliage isTree={isTree} />
-        <PhotoGallery isTree={isTree} onSelect={onSelect} />
-        <Star isTree={isTree} />
-      </Float>
-    </group>
-
-    <EffectComposer disableNormalPass>
-      <Bloom luminanceThreshold={0.2} mipmapBlur intensity={1.5} radius={0.6} />
-      <Vignette darkness={0.6} offset={0.3} />
-    </EffectComposer>
-  </>
+const UIOverlay = ({ isTree, toggle }: any) => (
+  <div className="ui-container">
+    <div className="ui-header">
+      <span className="subtitle">クリスマス</span>
+      <h1>À toi</h1>
+    </div>
+    <div className="ui-footer">
+      <button className="magic-button" onClick={toggle}>
+        {isTree ? "Scatter Stars" : "CLICK"}
+      </button>
+      <div className="instruction">YUMANMOK</div>
+    </div>
+  </div>
 );
 
-/* ================= 音乐播放器 ================= */
-
-const MusicPlayer = () => {
-  const [playing, setPlaying] = useState(false);
-  const audio = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    audio.current = new Audio(BACKGROUND_MUSIC_URL);
-    audio.current.loop = true;
-    audio.current.volume = 0.5;
-    audio.current.crossOrigin = "anonymous";
-    
-    return () => {
-      audio.current?.pause();
-      audio.current = null;
-    };
-  }, []);
-
-  const toggle = () => {
-    if (!audio.current) return;
-    if (playing) {
-      audio.current.pause();
-    } else {
-      audio.current.play().catch((e) => console.warn("Audio autoplay blocked:", e));
-    }
-    setPlaying(!playing);
-  };
-
+const Lightbox = ({ src, close }: any) => {
+  if (!src) return null;
   return (
-    <button
-      style={{
-        position: "absolute",
-        top: 20,
-        right: 20,
-        zIndex: 10,
-        background: "rgba(255,255,255,0.1)",
-        border: "1px solid rgba(255,255,255,0.2)",
-        color: "white",
-        padding: "8px 16px",
-        borderRadius: "20px",
-        cursor: "pointer",
-        backdropFilter: "blur(4px)",
-      }}
-      onClick={toggle}
-    >
-      {playing ? "🎵 BGM ON" : "🔇 BGM OFF"}
-    </button>
+    <div className="lightbox" onClick={close}>
+      <img src={src} alt="Memory" />
+      <div style={{ position: "absolute", bottom: "40px", color: "white", opacity: 0.5, fontSize: "12px", letterSpacing: "3px" }}>
+        TAP TO EXIT
+      </div>
+    </div>
   );
 };
-
-/* ================= 图片查看器 (Lightbox) ================= */
-
-const Lightbox = ({ src, close }: any) =>
-  src ? (
-    <div
-      onClick={close}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.9)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-        cursor: "pointer",
-        backdropFilter: "blur(10px)"
-      }}
-    >
-      <img 
-        src={src} 
-        alt="Full view"
-        style={{ 
-            maxWidth: "90vw", 
-            maxHeight: "90vh", 
-            boxShadow: "0 0 40px rgba(0,0,0,0.5)",
-            border: "2px solid #fff",
-            borderRadius: "4px"
-        }} 
-      />
-      <div style={{
-          position: "absolute",
-          bottom: 40,
-          color: "white",
-          opacity: 0.7,
-          fontFamily: "sans-serif"
-      }}>点击任意处关闭</div>
-    </div>
-  ) : null;
-
-/* ================= 主应用 ================= */
 
 const App = () => {
   const [isTree, setIsTree] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
 
   return (
-    <div style={{ 
-        width: "100vw", 
-        height: "100vh", 
-        background: PALETTE.bg,
-        overflow: "hidden" 
-    }}>
+    <div style={{ width: "100vw", height: "100vh", background: PALETTE.bg }}>
+      <UIOverlay isTree={isTree} toggle={() => setIsTree(!isTree)} />
       <MusicPlayer />
-
-      <button
-        style={{
-          position: "absolute",
-          top: 20,
-          left: 20,
-          zIndex: 10,
-          background: "rgba(13, 61, 46, 0.6)",
-          border: `1px solid ${PALETTE.greenLight}`,
-          color: PALETTE.greenLight,
-          padding: "10px 24px",
-          borderRadius: "4px",
-          cursor: "pointer",
-          fontWeight: "bold",
-          transition: "all 0.3s"
-        }}
-        onClick={() => setIsTree(!isTree)}
-      >
-        {isTree ? "✨ Scatter Stars" : "🎄 Assemble Tree"}
-      </button>
-
       <Lightbox src={selected} close={() => setSelected(null)} />
-
-      <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ACESFilmicToneMapping }}>
+      <Canvas 
+        shadows 
+        dpr={window.innerWidth < 768 ? 1 : [1, 2]} 
+        gl={{ 
+          antialias: false, 
+          toneMapping: THREE.ACESFilmicToneMapping,
+          powerPreference: "high-performance"
+        }}
+      >
         <Suspense fallback={null}>
-          <Scene isTree={isTree} onSelect={setSelected} />
+          <Scene isTree={isTree} onSelectPhoto={setSelected} />
         </Suspense>
       </Canvas>
-      
-      {/* 底部版权/提示 */}
-      <div style={{
-          position: "absolute",
-          bottom: 20,
-          width: "100%",
-          textAlign: "center",
-          color: "rgba(255,255,255,0.3)",
-          pointerEvents: "none",
-          fontSize: "12px",
-          fontFamily: "sans-serif"
-      }}>
-        Drag to rotate • Click photos to view
-      </div>
+      <style>{`
+        .lightbox {
+          position: fixed; top:0; left:0; width:100%; height:100%;
+          background: rgba(0,0,0,0.97); z-index: 2000;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          cursor: pointer; backdrop-filter: blur(30px);
+          animation: fadeIn 0.4s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .lightbox img { 
+          max-width: 92%; max-height: 85%; 
+          border: 1px solid rgba(255, 207, 77, 0.3); 
+          box-shadow: 0 0 100px rgba(0, 0, 0, 0.9);
+        }
+      `}</style>
     </div>
   );
 };
 
-// 假设这是一个单独的入口文件，直接渲染
-const container = document.getElementById("root");
-if (container) {
-    createRoot(container).render(<App />);
-}
+const root = createRoot(document.getElementById("root")!);
+root.render(<App />);
