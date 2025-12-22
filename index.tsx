@@ -25,13 +25,13 @@ if (typeof window !== "undefined") {
 
 const USER_PROVIDED_PHOTOS = [
   "https://img.heliar.top/file/1766344105890_IMG_2593.jpeg",
-  "https://img.heliar.top/file/1766381635443_image1.jpg",
-  "https://img.heliar.top/file/1766381655841_image5.jpg",
-  "https://img.heliar.top/file/1766381684552_image8.JPG",
-  "https://img.heliar.top/file/1766381668947_image9.jpg",
+  "https://img.heliar.top/file/1766390676525_image1.jpg",
+  "https://img.heliar.top/file/1766390662772_image5.jpg",
+  "https://img.heliar.top/file/1766390661649_image8.jpg",
+  "https://img.heliar.top/file/1766390650455_image9.jpg",
   "https://img.heliar.top/file/1766381738623_image7.JPG",
-  "https://img.heliar.top/file/1766381767812_10.JPG",
-  "https://img.heliar.top/file/1766381809450_image2.jpg",
+  "https://img.heliar.top/file/1766390670566_10.jpg",
+  "https://img.heliar.top/file/1766390668721_image2.jpg",
 ];
 
 const BACKUP_PHOTOS = [
