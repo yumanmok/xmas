@@ -16,53 +16,38 @@ import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocess
 
 // --- Configuration ---
 
-// 📸 [照片配置]
-// 你的照片 (阿里云 OSS)
-// 如果这些照片加载失败 (CORS)，系统会自动切换到下面的 BACKUP_PHOTOS
+// 📸 [照片配置] - 使用你提供的新图床
 const USER_PROVIDED_PHOTOS = [
   "https://img.heliar.top/file/1766344105890_IMG_2593.jpeg",
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
-  "https://img-view-c-zb.drive.quark.cn/VpKZZLfZ/11315219110/bc8c931ed952427181defa9aa12746cb688e2b54/688e2b5411a798bc5edc45d6824e25c099b0c1d6/preview_png"
+  "https://img.heliar.top/file/1766381635443_image1.jpg",
+  "https://img.heliar.top/file/1766381655841_image5.jpg",
+  "https://img.heliar.top/file/1766381684552_image8.JPG",
+  "https://img.heliar.top/file/1766381668947_image9.jpg",
+  "https://img.heliar.top/file/1766381738623_image7.JPG",
+  "https://img.heliar.top/file/1766381767812_10.JPG",
+  "https://img.heliar.top/file/1766381809450_image2.jpg"
 ];
 
-// 备用稳定图源 (Unsplash) - 当上面照片不可用时自动启用
+// 备用图源
 const BACKUP_PHOTOS = [
   "https://images.unsplash.com/photo-1544967082-d9d25d867d66?ixlib=rb-4.0.3&w=600&q=80",
-  "https://images.unsplash.com/photo-1512389142860-9c449e58a543?ixlib=rb-4.0.3&w=600&q=80",
-  "https://images.unsplash.com/photo-1482517967863-00e15c9b44be?ixlib=rb-4.0.3&w=600&q=80",
-  "https://images.unsplash.com/photo-1513297887119-d46091b24bfa?ixlib=rb-4.0.3&w=600&q=80"
+  "https://images.unsplash.com/photo-1512389142860-9c449e58a543?ixlib=rb-4.0.3&w=600&q=80"
 ];
 
 // 🎵 [背景音乐]
-const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/75e6ee7b5bd2e852d0307ac2a57cd8d2/693ec86f/resource/30106/trackmedia/M500000jZ9Vr2Wgbeu.mp3";
+const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/b61562cab0531a37fb3514b5303dfaf0/6948d9da/resource/30106/trackmedia/M500000jZ9Vr2Wgbeu.mp3";
 
-// --- Constants & Palette (Emerald + Gold Theme) ---
 const PALETTE = {
   bg: "#02120b",
   primary: "#e8d4e8",
-  emerald: "#1a5e4a",
-  greenDark: "#1a4731",
+  emerald: "#0d3d2e",
   greenLight: "#4add8c", 
   gold: "#ffcf4d",
   goldLight: "#fff0c0",
   pink: "#ffb7c5",
   pinkDeep: "#d66ba0",
   redVelvet: "#c41e3a",
-  error: "#ff4d4d", 
 };
-
-// --- Damp helper ---
-function damp(current: number, target: number, lambda: number, delta: number) {
-  const t = 1 - Math.exp(-lambda * delta);
-  return THREE.MathUtils.lerp(current, target, t);
-}
-
-function dampVec3(out: THREE.Vector3, current: THREE.Vector3, target: THREE.Vector3, lambda: number, delta: number) {
-  const t = 1 - Math.exp(-lambda * delta);
-  out.lerpVectors(current, target, t);
-}
 
 // --- Custom Shaders ---
 
@@ -87,35 +72,34 @@ const FoliageMaterial = shaderMaterial(
     varying vec3 vColor;
     varying float vAlpha;
 
-    float cubicInOut(float t) {
-      return t < 0.5 ? 4.0 * t * t * t : 1.0 - pow(-2.0 * t + 2.0, 3.0) / 2.0;
-    }
-
     void main() {
-      float t = cubicInOut(uMix);
+      float t = uMix;
       vec3 pos = mix(aScatterPos, aTreePos, t);
       
-      // Breathing & Wind
-      float breathe = sin(uTime * 1.5 + aRandom * 10.0) * 0.08 * t;
-      pos.y += breathe;
-      pos.x += cos(uTime * 0.5 + pos.y) * 0.03 * t;
+      // 🌀 持续粒子流动逻辑 (Flow Effect)
+      float angle = uTime * (0.2 + aRandom * 0.3);
+      float dist = length(pos.xz) + 0.01;
+      // 在树形态下加入环绕流动
+      if(t > 0.5) {
+        pos.x += cos(angle + pos.y) * 0.15;
+        pos.z += sin(angle + pos.y) * 0.15;
+        pos.y += sin(uTime + aRandom * 10.0) * 0.1;
+      }
       
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
       
-      // Size attenuation
-      float baseSize = (7.0 + aRandom * 5.0) * uPixelRatio;
-      baseSize *= (12.0 / max(0.5, -mvPosition.z)); 
-      gl_PointSize = clamp(baseSize, 0.0, 90.0);
+      float baseSize = (8.0 + aRandom * 6.0) * uPixelRatio;
+      baseSize *= (15.0 / max(0.5, -mvPosition.z)); 
+      gl_PointSize = clamp(baseSize, 0.0, 100.0);
 
       float heightPct = (aTreePos.y + 6.0) / 12.0;
-      vec3 treeColor = mix(uColorBottom, uColorTop, heightPct + sin(uTime + aRandom) * 0.1); 
+      vec3 treeColor = mix(uColorBottom, uColorTop, heightPct + sin(uTime * 0.5 + aRandom) * 0.2); 
       
-      float flash = step(0.98, sin(uTime * 3.0 + aRandom * 100.0));
-      treeColor = mix(treeColor, vec3(1.0, 0.95, 0.6), flash * 0.5 * t);
-
-      vColor = treeColor;
-      vAlpha = 0.9 + 0.1 * t; 
+      // 闪烁特效
+      float flash = step(0.97, sin(uTime * 2.0 + aRandom * 100.0));
+      vColor = mix(treeColor, vec3(1.0, 0.9, 0.5), flash * 0.6);
+      vAlpha = 0.8 + 0.2 * t; 
     }
   `,
   `
@@ -123,10 +107,9 @@ const FoliageMaterial = shaderMaterial(
     varying vec3 vColor;
     varying float vAlpha;
     void main() {
-      vec2 center = gl_PointCoord - 0.5;
-      float dist = length(center);
+      float dist = length(gl_PointCoord - 0.5);
       if (dist > 0.5) discard;
-      float strength = 1.0 - smoothstep(0.35, 0.5, dist);
+      float strength = 1.0 - smoothstep(0.2, 0.5, dist);
       gl_FragColor = vec4(vColor, vAlpha * strength);
     }
   `
@@ -134,276 +117,98 @@ const FoliageMaterial = shaderMaterial(
 
 extend({ FoliageMaterial });
 
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      foliageMaterial: any;
-      [elemName: string]: any;
-    }
-  }
-}
-
 // --- Utils ---
-
+const damp = (c: number, t: number, l: number, d: number) => THREE.MathUtils.lerp(c, t, 1 - Math.exp(-l * d));
 const getRandomSpherePoint = (r: number) => {
   const theta = Math.random() * Math.PI * 2;
   const v = Math.random();
   const phi = Math.acos(2 * v - 1);
   const rad = Math.cbrt(Math.random()) * r;
-  return new THREE.Vector3(
-    rad * Math.sin(phi) * Math.cos(theta),
-    rad * Math.sin(phi) * Math.sin(theta),
-    rad * Math.cos(phi)
-  );
+  return new THREE.Vector3(rad * Math.sin(phi) * Math.cos(theta), rad * Math.sin(phi) * Math.sin(theta), rad * Math.cos(phi));
 };
-
-const getRandomConePoint = (height: number, maxRadius: number) => {
+const getRandomConePoint = (h: number, r: number) => {
   const hRaw = 1 - Math.cbrt(Math.random()); 
-  const y = hRaw * height;
-  const rAtHeight = maxRadius * (1 - y / height);
+  const y = hRaw * h;
+  const rad = r * (1 - y / h);
   const theta = Math.random() * Math.PI * 2;
-  const r = Math.sqrt(Math.random()) * rAtHeight;
-  const x = r * Math.cos(theta);
-  const z = r * Math.sin(theta);
-  return new THREE.Vector3(x, y - height / 2, z);
+  const dist = Math.sqrt(Math.random()) * rad;
+  return new THREE.Vector3(dist * Math.cos(theta), y - h / 2, dist * Math.sin(theta));
 };
-
-const getConeSurfacePoint = (height: number, maxRadius: number) => {
-  const y = Math.random() * height;
-  const rAtHeight = maxRadius * (1 - y / height);
+const getConeSurfacePoint = (h: number, r: number) => {
+  const y = Math.random() * h;
+  const rad = r * (1 - y / h);
   const theta = Math.random() * Math.PI * 2;
-  const x = rAtHeight * Math.cos(theta);
-  const z = rAtHeight * Math.sin(theta);
-  return new THREE.Vector3(x, y - height / 2, z);
+  return new THREE.Vector3(rad * Math.cos(theta), y - h / 2, rad * Math.sin(theta));
 };
 
-// --- Refactored Photo Logic for Robustness ---
-
-type PhotoItemData = {
-  treePos: THREE.Vector3;
-  scatterPos: THREE.Vector3;
-  url: string;
-};
-
-// Generate positions for a specific set of URLs
-const generatePhotoData = (photos: string[]): PhotoItemData[] => {
-  // Ensure we have at least some photos, loop them to get to 10
-  const count = 10;
-  const source = photos.length > 0 ? photos : [""]; 
-  
-  return Array.from({ length: count }, (_, i) => {
-    const url = source[i % source.length];
-    
-    // Position Logic
-    const pct = i / Math.max(1, count - 1);
-    const y = (1 - pct) * 10 - 5 + 1;
-    const r = 4.0 * (1 - (y + 6) / 12.5);
-    const theta = i * Math.PI * (3 - Math.sqrt(5)) * 10 + Math.PI / 4;
-
-    const treePos = new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)).multiplyScalar(1.2);
-    const scatterPos = getRandomSpherePoint(20);
-    scatterPos.y += 5;
-
-    return { treePos, scatterPos, url };
-  });
-};
-
-// --- UI Components ---
-
-const LoadingScreen = () => (
-  <div className="loader-container">
-    <div className="loader"></div>
-    <div className="loader-text">Loading Memories...</div>
-  </div>
-);
-
-const UIOverlay = ({ toggleTree }: { toggleTree: () => void }) => (
-  <div className="ui-container">
-    <div className="ui-header">
-      <span className="subtitle">ARIX Signature</span>
-      <h1>À toi</h1>
-    </div>
-    <div className="ui-footer">
-      <button className="magic-button" onClick={toggleTree}>
-        Scatter / Assemble
-      </button>
-      <div className="instruction">Drag to Rotate • Scroll to Zoom</div>
-    </div>
-  </div>
-);
-
-const MusicPlayer = () => {
-  const [playing, setPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    if (BACKGROUND_MUSIC_URL) {
-      const audio = new Audio(BACKGROUND_MUSIC_URL);
-      audio.loop = true;
-      audio.volume = 0.5;
-      audioRef.current = audio;
-    }
-    return () => {
-      if (audioRef.current) audioRef.current.pause();
-    };
-  }, []);
-
-  const toggle = () => {
-    if (!audioRef.current) return;
-    if (playing) audioRef.current.pause();
-    else audioRef.current.play().catch(console.warn);
-    setPlaying(!playing);
-  };
-
-  if (!BACKGROUND_MUSIC_URL) return null;
-
-  return (
-    <div style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }}>
-      <button onClick={toggle} className="magic-button" style={{ padding: "8px 20px", fontSize: "0.6rem" }}>
-        {playing ? "🎵 ON" : "🔇 OFF"}
-      </button>
-    </div>
-  );
-};
-
-const Lightbox = ({ src, onClose }: { src: string | null; onClose: () => void }) => {
-  if (!src) return null;
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        top: 0, left: 0, width: "100vw", height: "100vh",
-        backgroundColor: "rgba(13, 10, 18, 0.95)",
-        backdropFilter: "blur(20px)",
-        zIndex: 2000,
-        display: "flex", justifyContent: "center", alignItems: "center",
-        cursor: "zoom-out",
-      }}
-    >
-      <img
-        src={src}
-        alt="Memory"
-        style={{
-          maxWidth: "85vw", maxHeight: "85vh",
-          objectFit: "contain",
-          border: "1px solid #e5c15d",
-          boxShadow: "0 0 50px rgba(229, 193, 93, 0.3)",
-          borderRadius: "4px",
-        }}
-      />
-    </div>
-  );
-};
-
-// --- 3D Components ---
+// --- Components ---
 
 const Foliage = ({ isTree }: { isTree: boolean }) => {
-  const count = 3500;
-  const meshRef = useRef<THREE.Points | null>(null);
+  const count = 4000;
   const materialRef = useRef<any>(null);
-
   const [data] = useState(() => {
-    const scatterPos = new Float32Array(count * 3);
-    const treePos = new Float32Array(count * 3);
-    const randoms = new Float32Array(count);
-
+    const sPos = new Float32Array(count * 3), tPos = new Float32Array(count * 3), rnd = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      const s = getRandomSpherePoint(16);
-      s.y += 5;
-      scatterPos[i * 3] = s.x;
-      scatterPos[i * 3 + 1] = s.y;
-      scatterPos[i * 3 + 2] = s.z;
-
-      const t = getRandomConePoint(12.5, 4.0);
-      treePos[i * 3] = t.x;
-      treePos[i * 3 + 1] = t.y;
-      treePos[i * 3 + 2] = t.z;
-
-      randoms[i] = Math.random();
+      const s = getRandomSpherePoint(18); s.y += 5;
+      const t = getRandomConePoint(13, 4.5);
+      sPos.set([s.x, s.y, s.z], i * 3);
+      tPos.set([t.x, t.y, t.z], i * 3);
+      rnd[i] = Math.random();
     }
-    return { scatterPos, treePos, randoms };
+    return { sPos, tPos, rnd };
   });
 
   useFrame((state, delta) => {
     if (materialRef.current) {
-      materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
-      const cur = materialRef.current.uniforms.uMix.value;
-      const target = isTree ? 1 : 0;
-      materialRef.current.uniforms.uMix.value = damp(cur, target, isTree ? 4.0 : 2.5, delta);
+      materialRef.current.uTime = state.clock.elapsedTime;
+      materialRef.current.uMix = damp(materialRef.current.uMix, isTree ? 1 : 0, 3, delta);
     }
   });
 
   return (
-    <points ref={meshRef} frustumCulled={false}>
+    <points frustumCulled={false}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={data.treePos} />
-        <bufferAttribute attach="attributes-aTreePos" count={count} itemSize={3} array={data.treePos} />
-        <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={data.scatterPos} />
-        <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={data.randoms} />
+        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={data.tPos} />
+        <bufferAttribute attach="attributes-aTreePos" count={count} itemSize={3} array={data.tPos} />
+        <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={data.sPos} />
+        <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={data.rnd} />
       </bufferGeometry>
-      {/* @ts-ignore foliageMaterial from extend */}
-      <foliageMaterial
-        ref={materialRef}
-        transparent
-        depthWrite={false}
-        blending={THREE.NormalBlending} 
-        uColorBottom={new THREE.Color(PALETTE.emerald)}
-        uColorTop={new THREE.Color(PALETTE.greenLight)}
-        uPixelRatio={Math.min(window.devicePixelRatio || 1, 2)}
-        toneMapped={false} 
-      />
+      {/* @ts-ignore */}
+      <foliageMaterial ref={materialRef} transparent depthWrite={false} blending={THREE.AdditiveBlending} uPixelRatio={window.devicePixelRatio} />
     </points>
   );
 };
 
 const Ornaments = ({ isTree }: { isTree: boolean }) => {
-  const count = 150;
+  const count = 120;
   const meshRef = useRef<THREE.InstancedMesh | null>(null);
-
+  const dummy = useMemo(() => new THREE.Object3D(), []);
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 16, 16), []);
-  const material = useMemo(
-    () =>
-      new THREE.MeshPhysicalMaterial({
-        roughness: 0.15,
-        metalness: 0.8,
-        clearcoat: 1.0,
-        color: 0xffffff,
-        vertexColors: true,
-      }),
-    []
-  );
+  // 核心：调整材质以防变黑
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ 
+    roughness: 0.1, 
+    metalness: 0.4, 
+    emissive: new THREE.Color("#222"), // 加入微弱自发光防止死黑
+    emissiveIntensity: 0.5
+  }), []);
 
   const instances = useMemo(() => {
-    const data: { tree: THREE.Vector3; scatter: THREE.Vector3; scale: number; color: string }[] = [];
-    for (let i = 0; i < count; i++) {
-      const surface = getConeSurfacePoint(11.5, 3.8);
-      surface.x *= 1.05;
-      surface.z *= 1.05;
-      const scatter = getRandomSpherePoint(18);
-      scatter.y += 5;
-      const scale = 0.12 + Math.random() * 0.18;
-      const color = Math.random() > 0.4 ? PALETTE.gold : PALETTE.pink;
-      data.push({ tree: surface, scatter, scale, color });
-    }
-    return data;
+    return Array.from({ length: count }, () => ({
+      tree: getConeSurfacePoint(12, 4.2).multiplyScalar(1.05),
+      scatter: getRandomSpherePoint(20).add(new THREE.Vector3(0, 5, 0)),
+      scale: 0.15 + Math.random() * 0.15,
+      color: Math.random() > 0.5 ? PALETTE.gold : PALETTE.pinkDeep
+    }));
   }, []);
 
-  const dummy = useMemo(() => new THREE.Object3D(), []);
   const mixRef = useRef(0);
-
   useFrame((state, delta) => {
     if (!meshRef.current) return;
-    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 6.0 : 3.0, delta);
-    const t = mixRef.current;
+    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, 4, delta);
     instances.forEach((data, i) => {
-      dummy.position.lerpVectors(data.scatter, data.tree, t);
-      const time = state.clock.elapsedTime;
-      const wave = Math.sin(time * 0.5 + i) * 0.2 * (1 - t);
-      dummy.position.y += wave;
-      dummy.rotation.x = time * 0.2 + i;
-      dummy.rotation.y = time * 0.15 + i * 0.1;
-      dummy.scale.setScalar(data.scale * (0.5 + 0.5 * t));
+      dummy.position.lerpVectors(data.scatter, data.tree, mixRef.current);
+      dummy.scale.setScalar(data.scale * (0.3 + 0.7 * mixRef.current));
+      dummy.rotation.y += delta * (i % 2 === 0 ? 1 : -1);
       dummy.updateMatrix();
       meshRef.current!.setMatrixAt(i, dummy.matrix);
     });
@@ -412,498 +217,197 @@ const Ornaments = ({ isTree }: { isTree: boolean }) => {
 
   useEffect(() => {
     if (meshRef.current) {
-      const color = new THREE.Color();
-      instances.forEach((data, i) => {
-        meshRef.current!.setColorAt(i, color.set(data.color));
-      });
-      if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+      instances.forEach((data, i) => meshRef.current!.setColorAt(i, new THREE.Color(data.color)));
+      meshRef.current.instanceColor!.needsUpdate = true;
     }
-  }, [instances]);
-
-  return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
-};
-
-const Diamonds = ({ isTree }: { isTree: boolean }) => {
-  const count = 40;
-  const meshRef = useRef<THREE.InstancedMesh | null>(null);
-  const geometry = useMemo(() => new THREE.OctahedronGeometry(1, 0), []);
-  const material = useMemo(
-    () =>
-      new THREE.MeshPhysicalMaterial({
-        color: 0xffffff,
-        metalness: 0.1,
-        roughness: 0.0,
-        transmission: 0.6,
-        thickness: 1.5,
-        clearcoat: 1.0,
-        ior: 1.5,
-      }),
-    []
-  );
-  const instances = useMemo(() => {
-    const data: { tree: THREE.Vector3; scatter: THREE.Vector3 }[] = [];
-    for (let i = 0; i < count; i++) {
-      const h = 3 + Math.random() * 6;
-      const maxR = 4.5 * (1 - h / 12);
-      const theta = Math.random() * Math.PI * 2;
-      const treePos = new THREE.Vector3(maxR * Math.cos(theta), h - 6, maxR * Math.sin(theta)).multiplyScalar(1.15);
-      const scatter = getRandomSpherePoint(18);
-      scatter.y += 5;
-      data.push({ tree: treePos, scatter });
-    }
-    return data;
   }, []);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const mixRef = useRef(0);
-  useFrame((state, delta) => {
-    if (!meshRef.current) return;
-    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 5.0 : 3.0, delta);
-    const t = mixRef.current;
-    instances.forEach((data, i) => {
-      dummy.position.lerpVectors(data.scatter, data.tree, t);
-      const time = state.clock.elapsedTime;
-      dummy.rotation.set(time + i, time * 1.5 + i, 0);
-      dummy.scale.setScalar(0.15 * t);
-      dummy.updateMatrix();
-      meshRef.current!.setMatrixAt(i, dummy.matrix);
-    });
-    meshRef.current.instanceMatrix.needsUpdate = true;
-  });
-  return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
-};
 
-const Gifts = ({ isTree }: { isTree: boolean }) => {
-  const count = 20;
-  const meshRef = useRef<THREE.InstancedMesh | null>(null);
-  const texture = useMemo(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = PALETTE.redVelvet;
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.fillStyle = PALETTE.gold;
-      ctx.fillRect(54, 0, 20, 128);
-      ctx.fillRect(0, 54, 128, 20);
-    }
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.needsUpdate = true;
-    return tex;
-  }, []);
-  const geometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
-  const material = useMemo(() => new THREE.MeshStandardMaterial({ map: texture, roughness: 0.4 }), [texture]);
-  const instances = useMemo(() => {
-    const data: { tree: THREE.Vector3; scatter: THREE.Vector3; scale: number }[] = [];
-    for (let i = 0; i < count; i++) {
-      const r = 1.5 + Math.random() * 3.0;
-      const theta = Math.random() * Math.PI * 2;
-      const treePos = new THREE.Vector3(r * Math.cos(theta), -5.5 + Math.random() * 0.5, r * Math.sin(theta));
-      const scatter = getRandomSpherePoint(18);
-      scatter.y += 5;
-      const scale = 0.2 + Math.random() * 0.2;
-      data.push({ tree: treePos, scatter, scale });
-    }
-    return data;
-  }, []);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const mixRef = useRef(0);
-  useFrame((state, delta) => {
-    if (!meshRef.current) return;
-    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 5.0 : 3.0, delta);
-    const t = mixRef.current;
-    instances.forEach((data, i) => {
-      dummy.position.lerpVectors(data.scatter, data.tree, t);
-      dummy.rotation.y = state.clock.elapsedTime * 0.1 + i;
-      dummy.scale.setScalar(data.scale * t);
-      dummy.updateMatrix();
-      meshRef.current!.setMatrixAt(i, dummy.matrix);
-    });
-    meshRef.current.instanceMatrix.needsUpdate = true;
-  });
-  return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
+  return <instancedMesh ref={meshRef} args={[geometry, material, count]} />;
 };
 
 const PhotoFrame = ({ texture, treePos, scatterPos, isTree, index, url, onSelect, error }: any) => {
   const groupRef = useRef<THREE.Group | null>(null);
   const mixRef = useRef(0);
 
-  // Fallback dimensions if texture is missing/failed
-  const width = (texture && texture.image && texture.image.width) || 500;
-  const height = (texture && texture.image && texture.image.height) || 500;
-  const aspect = width / height;
-
-  const baseH = 1.0;
-  const planeW = baseH * aspect;
-  const planeH = baseH;
-  const frameW = planeW + 0.15;
-  const frameH = planeH + 0.15;
+  const aspect = (texture?.image?.width / texture?.image?.height) || 1;
+  const planeW = 1.2 * aspect, planeH = 1.2;
 
   useFrame((state, delta) => {
     if (!groupRef.current) return;
-    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 6.0 : 3.0, delta);
+    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, 4, delta);
     const t = mixRef.current;
-    const targetPos = new THREE.Vector3().lerpVectors(scatterPos, treePos, t);
-    groupRef.current.position.copy(targetPos);
-
+    groupRef.current.position.lerpVectors(scatterPos, treePos, t);
+    
     if (isTree && t > 0.8) {
       groupRef.current.lookAt(0, groupRef.current.position.y, 0);
       groupRef.current.rotateY(Math.PI);
     } else {
-      groupRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.2 + index) * 0.5;
-      groupRef.current.rotation.y = state.clock.elapsedTime * 0.1 + index;
-      groupRef.current.rotation.z = Math.cos(state.clock.elapsedTime * 0.15 + index) * 0.3;
+      groupRef.current.rotation.y = state.clock.elapsedTime * 0.5 + index;
     }
-    const scale = isTree ? 0.65 : 0.8 + Math.sin(state.clock.elapsedTime + index) * 0.1;
-    groupRef.current.scale.setScalar(scale);
+    groupRef.current.scale.setScalar(isTree ? 0.7 : 1.0);
   });
 
   return (
-    <group
-      ref={groupRef}
-      onClick={(e) => { e.stopPropagation(); if(!error) onSelect(url); }}
-      onPointerOver={() => { document.body.style.cursor = error ? "not-allowed" : "zoom-in"; }}
-      onPointerOut={() => { document.body.style.cursor = "default"; }}
-    >
-      <mesh position={[0, 0, -0.01]}>
-        <boxGeometry args={[frameW, frameH, 0.05]} />
-        <meshPhysicalMaterial 
-          color={error ? PALETTE.error : PALETTE.gold} 
-          metalness={0.95} 
-          roughness={0.1} 
-          clearcoat={1} 
-        />
+    <group ref={groupRef} onClick={(e) => { e.stopPropagation(); onSelect(url); }}>
+      <mesh position={[0, 0, -0.02]}>
+        <boxGeometry args={[planeW + 0.1, planeH + 0.1, 0.05]} />
+        <meshStandardMaterial color={PALETTE.gold} metalness={0.7} roughness={0.2} emissive={PALETTE.gold} emissiveIntensity={0.2} />
       </mesh>
-      
-      {/* Front Image or Error Placeholder */}
       <mesh>
         <planeGeometry args={[planeW, planeH]} />
-        {error || !texture ? (
-           <meshBasicMaterial color="#2a0a0a" />
-        ) : (
-           <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
-        )}
+        {error ? <meshBasicMaterial color="#300" /> : <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.95} />}
       </mesh>
-
-      {/* Error Text Label if Failed */}
-      {error && (
-        <group position={[0, 0, 0.02]}>
-          <Text 
-            fontSize={0.15} 
-            color="#ff6b6b" 
-            anchorX="center" 
-            anchorY="middle"
-            maxWidth={planeW * 0.9}
-          >
-            IMAGE ERROR
-          </Text>
-        </group>
-      )}
-
-      <mesh position={[0, 0, -0.015]} rotation={[0, Math.PI, 0]}>
-        <planeGeometry args={[planeW, planeH]} />
-        <meshStandardMaterial color={PALETTE.gold} roughness={0.5} />
-      </mesh>
+      {error && <Text position={[0, 0, 0.05]} fontSize={0.1} color="white">LOAD ERROR</Text>}
     </group>
   );
 };
 
-// --- Layer 1: The component that tries to load User Photos ---
-const UserGalleryLayer = ({ isTree, onSelectPhoto }: { isTree: boolean; onSelectPhoto: (url: string) => void }) => {
-  if (!USER_PROVIDED_PHOTOS || USER_PROVIDED_PHOTOS.length === 0) {
-    // If no user photos, throw error to trigger backup immediately
-    throw new Error("No user photos");
-  }
+const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) => {
+  // 单张图片独立加载逻辑，防止一张报错全部崩溃
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const [error, setError] = useState(false);
 
-  // Pre-calculate positions
-  const photoData = useMemo(() => generatePhotoData(USER_PROVIDED_PHOTOS), []);
-  const urls = photoData.map(d => d.url);
-  
-  // This will SUSPEND if loading, and THROW if error (CORS/404)
-  const textures = useTexture(urls);
-  const textureArray = Array.isArray(textures) ? textures : [textures];
+  useEffect(() => {
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      url,
+      (tex) => setTexture(tex),
+      undefined,
+      () => {
+        // 如果用户图床失败，自动尝试备用图
+        const backup = BACKUP_PHOTOS[index % BACKUP_PHOTOS.length];
+        loader.load(backup, (bTex) => setTexture(bTex), undefined, () => setError(true));
+      }
+    );
+  }, [url]);
 
-  return (
-    <group>
-      {photoData.map((item, i) => (
-        <PhotoFrame
-          key={`user-${i}`}
-          index={i}
-          isTree={isTree}
-          texture={textureArray[i]}
-          treePos={item.treePos}
-          scatterPos={item.scatterPos}
-          url={item.url}
-          onSelect={onSelectPhoto}
-          error={false}
-        />
-      ))}
-    </group>
-  );
+  return <PhotoFrame texture={texture} treePos={treePos} scatterPos={scatterPos} isTree={isTree} index={index} url={url} onSelect={onSelect} error={error} />;
 };
 
-// --- Layer 2: The component that tries to load Backup Photos ---
-const BackupGalleryLayer = ({ isTree, onSelectPhoto }: { isTree: boolean; onSelectPhoto: (url: string) => void }) => {
-  // Pre-calculate positions using backup source
-  const photoData = useMemo(() => generatePhotoData(BACKUP_PHOTOS), []);
-  const urls = photoData.map(d => d.url);
-  
-  // This will SUSPEND if loading, and THROW if error
-  const textures = useTexture(urls);
-  const textureArray = Array.isArray(textures) ? textures : [textures];
-
-  return (
-    <group>
-      {photoData.map((item, i) => (
-        <PhotoFrame
-          key={`backup-${i}`}
-          index={i}
-          isTree={isTree}
-          texture={textureArray[i]}
-          treePos={item.treePos}
-          scatterPos={item.scatterPos}
-          url={item.url}
-          onSelect={onSelectPhoto}
-          error={false}
-        />
-      ))}
-    </group>
-  );
-};
-
-// --- Layer 3: The Red Placeholder Fallback ---
-const FallbackLayer = ({ isTree }: { isTree: boolean }) => {
-  // Use user photos array for position count generation, just so we have frames
-  const photoData = useMemo(() => generatePhotoData(USER_PROVIDED_PHOTOS.length > 0 ? USER_PROVIDED_PHOTOS : BACKUP_PHOTOS), []);
-  
-  return (
-    <group>
-      {photoData.map((item, i) => (
-        <PhotoFrame
-          key={`fallback-${i}`}
-          index={i}
-          isTree={isTree}
-          texture={null}
-          treePos={item.treePos}
-          scatterPos={item.scatterPos}
-          url={item.url}
-          onSelect={() => {}}
-          error={true}
-        />
-      ))}
-    </group>
-  );
-};
-
-class TextureErrorBoundary extends React.Component<
-  { fallback: React.ReactNode; children: React.ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(error: any) {
-    // Only log warning, don't crash
-    console.warn("Gallery loading failed (CORS or Network). Switching to fallback.", error);
-  }
-  render() {
-    if (this.state.hasError) return this.props.fallback;
-    return this.props.children;
-  }
-}
-
-// --- The Master Controller Component ---
-const RobustPhotoGallery = ({ isTree, onSelectPhoto }: { isTree: boolean; onSelectPhoto: (url: string) => void }) => {
-  return (
-    // Outer boundary: Catch failures in Backup -> Show Red Placeholders
-    <TextureErrorBoundary fallback={<FallbackLayer isTree={isTree} />}>
-      <Suspense fallback={null}>
-        {/* Inner boundary: Catch failures in User Photos -> Show Backup */}
-        <TextureErrorBoundary fallback={<BackupGalleryLayer isTree={isTree} onSelectPhoto={onSelectPhoto} />}>
-           <UserGalleryLayer isTree={isTree} onSelectPhoto={onSelectPhoto} />
-        </TextureErrorBoundary>
-      </Suspense>
-    </TextureErrorBoundary>
-  );
-};
-
-const FairyLights = ({ isTree }: { isTree: boolean }) => {
-  const count = 400;
-  const meshRef = useRef<THREE.InstancedMesh | null>(null);
-  const geometry = useMemo(() => new THREE.SphereGeometry(1, 8, 8), []);
-  const material = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: 0x000000,
-        emissive: new THREE.Color(PALETTE.goldLight),
-        emissiveIntensity: 10,
-        toneMapped: false,
-      }),
-    []
-  );
-  const instances = useMemo(() => {
-    const data: { tree: THREE.Vector3; scatter: THREE.Vector3 }[] = [];
-    const turns = 10;
-    const height = 12;
-    const maxR = 4.6;
-    for (let i = 0; i < count; i++) {
-      const pct = i / count;
-      const y = pct * height - height / 2;
-      const r = maxR * (1 - pct);
-      const theta = pct * turns * Math.PI * 2;
-      const treePos = new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)).multiplyScalar(1.02);
-      const scatterPos = getRandomSpherePoint(12);
-      scatterPos.y += 5;
-      data.push({ tree: treePos, scatter: scatterPos });
-    }
-    return data;
-  }, []);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const mixRef = useRef(0);
-  useFrame((state, delta) => {
-    if (!meshRef.current) return;
-    mixRef.current = damp(mixRef.current, isTree ? 1 : 0, isTree ? 6.0 : 3.0, delta);
-    const t = mixRef.current;
-    const time = state.clock.elapsedTime;
-    instances.forEach((data, i) => {
-      dummy.position.lerpVectors(data.scatter, data.tree, t);
-      const twinkle = Math.sin(time * 3 + i * 0.5) * 0.5 + 0.5;
-      const scale = 0.08 * (0.5 + 0.5 * t) + 0.04 * twinkle * t;
-      dummy.scale.setScalar(scale);
-      dummy.updateMatrix();
-      meshRef.current!.setMatrixAt(i, dummy.matrix);
+const PhotoGallery = ({ isTree, onSelectPhoto }: any) => {
+  const items = useMemo(() => {
+    return Array.from({ length: 10 }, (_, i) => {
+      const y = (1 - i / 9) * 10 - 4.5;
+      const r = 4.5 * (1 - (y + 5) / 12);
+      const theta = i * 2.4 + Math.PI / 4;
+      return {
+        url: USER_PROVIDED_PHOTOS[i % USER_PROVIDED_PHOTOS.length],
+        treePos: new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)).multiplyScalar(1.2),
+        scatterPos: getRandomSpherePoint(22).add(new THREE.Vector3(0, 5, 0))
+      };
     });
-    meshRef.current.instanceMatrix.needsUpdate = true;
-  });
-  return <instancedMesh ref={meshRef} args={[geometry, material, count]} frustumCulled={false} />;
+  }, []);
+
+  return (
+    <group>
+      {items.map((item, i) => (
+        <PhotoItem key={i} index={i} isTree={isTree} {...item} onSelect={onSelectPhoto} />
+      ))}
+    </group>
+  );
 };
 
 const Star = ({ isTree }: { isTree: boolean }) => {
-  const ref = useRef<THREE.Group | null>(null);
-  const scatterPos = useMemo(() => new THREE.Vector3(0, 10, 0), []);
+  const ref = useRef<THREE.Group>(null!);
   useFrame((state, delta) => {
-    if (ref.current) {
-      ref.current.rotation.y += delta * 0.8;
-      ref.current.rotation.z = Math.sin(state.clock.elapsedTime) * 0.1;
-      const target = isTree ? new THREE.Vector3(0, 6.2, 0) : scatterPos;
-      const curPos = ref.current.position.clone();
-      dampVec3(ref.current.position, curPos, target, isTree ? 8.0 : 3.0, delta);
-      const s = isTree ? 1 : 0.1;
-      const newScale = THREE.MathUtils.lerp(ref.current.scale.x || 1, s, 1 - Math.exp(-6 * delta));
-      ref.current.scale.setScalar(newScale);
-    }
+    ref.current.rotation.y += delta * 2;
+    const targetY = isTree ? 6.5 : 12;
+    ref.current.position.y = damp(ref.current.position.y, targetY, 4, delta);
+    ref.current.scale.setScalar(isTree ? 1 : 0.2);
   });
   return (
-    <group ref={ref}>
+    <group ref={ref} position={[0, 12, 0]}>
       <mesh>
-        <icosahedronGeometry args={[0.5, 0]} />
-        <meshBasicMaterial color={PALETTE.gold} toneMapped={false} />
+        <octahedronGeometry args={[0.6, 0]} />
+        <meshBasicMaterial color={PALETTE.gold} />
       </mesh>
-      <pointLight color={PALETTE.gold} intensity={3} distance={10} decay={2} />
+      <pointLight color={PALETTE.gold} intensity={5} distance={10} />
     </group>
   );
 };
 
-const BackgroundParticles = () => {
-  const count = 500;
-  const meshRef = useRef<THREE.Points | null>(null);
-  const [positions] = useState(() => {
-    const pos = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const p = getRandomSpherePoint(30);
-      pos[i * 3] = p.x;
-      pos[i * 3 + 1] = p.y;
-      pos[i * 3 + 2] = p.z;
-    }
-    return pos;
-  });
-  useFrame((state, delta) => {
-    if (meshRef.current) meshRef.current.rotation.y += delta * 0.02;
-  });
-  return (
-    <points ref={meshRef}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={positions} />
-      </bufferGeometry>
-      <pointsMaterial size={0.15} color={PALETTE.pink} transparent opacity={0.4} sizeAttenuation />
-    </points>
-  );
-};
-
-const Scene = ({ isTree, toggleTree, customPhotos, onSelectPhoto }: { isTree: boolean; toggleTree: () => void; customPhotos: string[]; onSelectPhoto: (url: string) => void }) => {
+const Scene = ({ isTree, onSelectPhoto }: any) => {
   return (
     <>
-      <PerspectiveCamera makeDefault position={[0, 4, 18]} fov={50} />
-      <OrbitControls
-        target={[0, 2, 0]}
-        enablePan={false}
-        maxPolarAngle={Math.PI / 2 - 0.1}
-        minDistance={8}
-        maxDistance={30}
-        autoRotate={isTree}
-        autoRotateSpeed={0.5}
+      <PerspectiveCamera makeDefault position={[0, 3, 16]} fov={50} />
+      {/* 核心：autoRotate 始终开启，保持场景灵动 */}
+      <OrbitControls 
+        autoRotate 
+        autoRotateSpeed={0.8} 
+        enablePan={false} 
+        maxPolarAngle={Math.PI / 2} 
+        minDistance={10} 
+        maxDistance={25} 
       />
-      <Environment preset="city" background={false} blur={0.8} />
-      <ambientLight intensity={0.4} color={PALETTE.emerald} />
-      <spotLight position={[10, 20, 10]} intensity={8} angle={0.6} penumbra={1} color={PALETTE.goldLight} castShadow shadow-bias={-0.0001} />
-      <pointLight position={[-10, 5, -10]} intensity={4} color={PALETTE.pinkDeep} />
-      <spotLight position={[0, 10, -15]} intensity={6} color="#cceeff" angle={1} />
+      <Environment preset="night" />
+      <ambientLight intensity={0.5} />
+      <spotLight position={[10, 15, 10]} intensity={15} color={PALETTE.goldLight} angle={0.5} penumbra={1} />
+      <pointLight position={[-10, 5, -10]} intensity={10} color={PALETTE.pinkDeep} />
+
       <group position={[0, -2, 0]}>
-        <Float speed={isTree ? 2 : 0.5} rotationIntensity={isTree ? 0.2 : 0.05} floatIntensity={isTree ? 0.5 : 0.1}>
+        <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
           <Foliage isTree={isTree} />
           <Ornaments isTree={isTree} />
-          <Diamonds isTree={isTree} />
-          <Gifts isTree={isTree} />
-          
-          <RobustPhotoGallery isTree={isTree} onSelectPhoto={onSelectPhoto} />
-          
-          <FairyLights isTree={isTree} />
+          <PhotoGallery isTree={isTree} onSelectPhoto={onSelectPhoto} />
           <Star isTree={isTree} />
         </Float>
       </group>
-      <BackgroundParticles />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -6, 0]} receiveShadow>
-        <planeGeometry args={[100, 100]} />
-        <meshStandardMaterial color={PALETTE.emerald} roughness={0.2} metalness={0.6} />
-      </mesh>
-      <EffectComposer enableNormalPass={false}>
-        <Bloom luminanceThreshold={0.8} mipmapBlur intensity={1.0} radius={0.5} />
-        <Noise opacity={0.05} />
-        <Vignette offset={0.3} darkness={0.7} />
+
+      <EffectComposer>
+        <Bloom luminanceThreshold={0.5} intensity={1.2} mipmapBlur />
+        <Vignette eskil={false} offset={0.1} darkness={0.8} />
       </EffectComposer>
     </>
   );
 };
 
-const App = () => {
-  const [isTree, setIsTree] = useState(true);
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+const UIOverlay = ({ toggle }: any) => (
+  <div className="ui-container">
+    <div className="ui-header">
+      <span className="subtitle">Luxe Experience</span>
+      <h1>À toi</h1>
+    </div>
+    <div className="ui-footer">
+      <button className="magic-button" onClick={toggle}>Assemble / Scatter</button>
+      <div className="instruction">Flowing Magic • Drag to Explore</div>
+    </div>
+  </div>
+);
+
+const Lightbox = ({ src, close }: any) => {
+  if (!src) return null;
   return (
-    <>
-      <UIOverlay toggleTree={() => setIsTree((s) => !s)} />
-      <MusicPlayer />
-      <Lightbox src={selectedPhoto} onClose={() => setSelectedPhoto(null)} />
-      <Canvas shadows dpr={[1, 2]} gl={{ antialias: false, toneMapping: THREE.CineonToneMapping, toneMappingExposure: 1.2 }}>
-        <Suspense fallback={null}>
-          <Scene isTree={isTree} toggleTree={() => setIsTree((s) => !s)} customPhotos={USER_PROVIDED_PHOTOS} onSelectPhoto={setSelectedPhoto} />
-        </Suspense>
-      </Canvas>
-      <Suspense fallback={<LoadingScreen />}>
-        <group />
-      </Suspense>
-    </>
+    <div className="lightbox" onClick={close}>
+      <img src={src} alt="Memory" />
+    </div>
   );
 };
 
-const rootEl = document.getElementById("root");
-if (rootEl) {
-  const root = createRoot(rootEl);
-  root.render(<App />);
-} else {
-  console.error("Root element #root not found");
-}
+const App = () => {
+  const [isTree, setIsTree] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
 
+  return (
+    <div style={{ width: "100vw", height: "100vh", background: PALETTE.bg }}>
+      <UIOverlay toggle={() => setIsTree(!isTree)} />
+      <Lightbox src={selected} close={() => setSelected(null)} />
+      <Canvas shadows dpr={[1, 2]}>
+        <Suspense fallback={null}>
+          <Scene isTree={isTree} onSelectPhoto={setSelected} />
+        </Suspense>
+      </Canvas>
+      <style>{`
+        .lightbox {
+          position: fixed; top:0; left:0; width:100%; height:100%;
+          background: rgba(0,0,0,0.9); z-index: 2000;
+          display: flex; align-items: center; justify-content: center;
+          cursor: zoom-out; backdrop-filter: blur(10px);
+        }
+        .lightbox img { max-width: 90%; max-height: 90%; border: 2px solid #ffcf4d; border-radius: 8px; }
+      `}</style>
+    </div>
+  );
+};
+
+const root = createRoot(document.getElementById("root")!);
+root.render(<App />);
