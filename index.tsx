@@ -35,7 +35,7 @@ const BACKUP_PHOTOS = [
 ];
 
 // 🎵 [背景音乐]
-const BACKGROUND_MUSIC_URL = "https://er-sycdn.kuwo.cn/b61562cab0531a37fb3514b5303dfaf0/6948d9da/resource/30106/trackmedia/M500000jZ9Vr2Wgbeu.mp3";
+const BACKGROUND_MUSIC_URL = "https://cs1.mp3.pm/download/139557278/TGlCay9pSE9kbG04WjdwMDJNbnFsNGx5aEt0aFhnVllEby9jaTVGcXk1T1JrWU5XVnM1QUNzeUI4NlJJazIrU1QwREFPc0tRS2ZrL3BCSVJnU1Y3SFBHaVNGNnNmVHIvYmVYNk93N1ExdHoxc0FrZUJUV25TOXRjS05ETWdWbVc/back_number_-_full_(mp3.pm).mp3";
 
 const PALETTE = {
   bg: "#02120b",
@@ -373,6 +373,40 @@ const UIOverlay = ({ toggle }: any) => (
     </div>
   </div>
 );
+
+const MusicPlayer = () => {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (BACKGROUND_MUSIC_URL) {
+      const audio = new Audio(BACKGROUND_MUSIC_URL);
+      audio.loop = true;
+      audio.volume = 0.5;
+      audioRef.current = audio;
+    }
+    return () => {
+      if (audioRef.current) audioRef.current.pause();
+    };
+  }, []);
+
+  const toggle = () => {
+    if (!audioRef.current) return;
+    if (playing) audioRef.current.pause();
+    else audioRef.current.play().catch(console.warn);
+    setPlaying(!playing);
+  };
+
+  if (!BACKGROUND_MUSIC_URL) return null;
+
+  return (
+    <div style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }}>
+      <button onClick={toggle} className="magic-button" style={{ padding: "8px 20px", fontSize: "0.6rem" }}>
+        {playing ? "🎵 ON" : "🔇 OFF"}
+      </button>
+    </div>
+  );
+};
 
 const Lightbox = ({ src, close }: any) => {
   if (!src) return null;
