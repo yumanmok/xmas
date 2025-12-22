@@ -519,7 +519,7 @@ const UIOverlay = ({ isTree, toggle }: any) => (
     </div>
     <div className="ui-footer">
       <button className="magic-button" onClick={toggle}>
-        {isTree ? "Scatter Stars" : "CLICK"}
+        {isTree ? "CLICK" : "Scatter Stars"}
       </button>
       <div className="instruction">YUMANMOK</div>
     </div>
