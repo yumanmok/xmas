@@ -20,7 +20,7 @@ import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocess
 // 你的照片 (阿里云 OSS)
 // 如果这些照片加载失败 (CORS)，系统会自动切换到下面的 BACKUP_PHOTOS
 const USER_PROVIDED_PHOTOS = [
-  "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image1.jpg",
+  "https://img.heliar.top/file/1766344105890_IMG_2593.jpeg",
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
   "https://yuman-pf-images.oss-cn-guangzhou.aliyuncs.com/images/image6.jpg",
