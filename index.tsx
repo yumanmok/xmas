@@ -79,8 +79,53 @@ const getConeSurfacePoint = (h: number, r: number) => {
   return new THREE.Vector3(rad * Math.cos(theta), y - h / 2.0, rad * Math.sin(theta));
 };
 
+// CRITICAL UTILITY: Resize textures on the fly to prevent OOM
+const loadOptimizedTexture = (url: string, isMobile: boolean, callback: (texture: THREE.Texture) => void, errorCallback?: () => void) => {
+  const img = new Image();
+  img.crossOrigin = "Anonymous";
+  img.src = url;
+  img.onload = () => {
+    // Determine max size: 1024 for mobile, 2048 for desktop
+    const maxDim = isMobile ? 1024 : 2048;
+    let width = img.width;
+    let height = img.height;
+
+    // Resize logic
+    if (width > maxDim || height > maxDim) {
+      const scale = Math.min(maxDim / width, maxDim / height);
+      width *= scale;
+      height *= scale;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+      ctx.drawImage(img, 0, 0, width, height);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      // Disable mipmaps on mobile for extra memory saving
+      if (isMobile) {
+        texture.generateMipmaps = false;
+        texture.minFilter = THREE.LinearFilter;
+      }
+      callback(texture);
+    } else {
+      // Fallback if canvas context fails
+      const texture = new THREE.TextureLoader().load(url);
+      callback(texture);
+    }
+  };
+  img.onerror = () => {
+    if (errorCallback) errorCallback();
+  };
+};
+
 /* ================= Custom Materials ================= */
 
+// Switched to 'mediump' for better mobile compatibility
 // --- 1. Foliage Material ---
 const FoliageMaterial = shaderMaterial(
   {
@@ -92,7 +137,7 @@ const FoliageMaterial = shaderMaterial(
     uPixelRatio: 1.0,
   },
   `
-    precision highp float;
+    precision mediump float; 
     uniform float uTime;
     uniform float uMix;
     uniform float uPixelRatio;
@@ -116,11 +161,9 @@ const FoliageMaterial = shaderMaterial(
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
       
-      // Dynamic Size
       float baseSize = mix(12.0, 7.0, uMix); 
       float size = (baseSize + aRandom * 8.0) * uPixelRatio;
       
-      // Perspective attenuation
       size *= (35.0 / max(5.0, -mvPosition.z)); 
       gl_PointSize = clamp(size, 3.0, 100.0);
 
@@ -132,7 +175,7 @@ const FoliageMaterial = shaderMaterial(
     }
   `,
   `
-    precision highp float;
+    precision mediump float;
     uniform float uTime;
     uniform vec3 uColorGold;
     varying vec3 vColor;
@@ -171,7 +214,7 @@ const SnowMaterial = shaderMaterial(
     uPixelRatio: 1.0,
   },
   `
-    precision highp float;
+    precision mediump float;
     uniform float uTime;
     uniform float uHeight; 
     uniform float uPixelRatio; 
@@ -202,7 +245,7 @@ const SnowMaterial = shaderMaterial(
     }
   `,
   `
-    precision highp float;
+    precision mediump float;
     uniform vec3 uColor;
     uniform float uGlobalOpacity;
     varying float vOpacity;
@@ -222,7 +265,7 @@ const SnowMaterial = shaderMaterial(
 const SignatureFloorMaterial = shaderMaterial(
   { uTime: 0, uColor: new THREE.Color(PALETTE.emerald), uGold: new THREE.Color(PALETTE.gold) },
   `
-    precision highp float;
+    precision mediump float;
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -230,7 +273,7 @@ const SignatureFloorMaterial = shaderMaterial(
     }
   `,
   `
-    precision highp float;
+    precision mediump float;
     uniform float uTime;
     uniform vec3 uColor;
     uniform vec3 uGold;
@@ -265,7 +308,6 @@ declare global {
 const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
   const pointsRef = useRef<THREE.Points>(null!);
   const materialRef = useRef<any>(null!);
-  // Reduced snow for mobile for better performance (50 particles is very safe)
   const count = isMobile ? 50 : 500; 
   const height = 30;
   const dpr = useThree((state) => state.viewport.dpr);
@@ -350,7 +392,6 @@ const MusicPlayer = () => {
 };
 
 const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  // Ultra-safe count for mobile to ensure loading
   const count = isMobile ? 600 : 5000;
   const materialRef = useRef<any>(null);
   const dpr = useThree(s => s.viewport.dpr);
@@ -426,14 +467,26 @@ const Ornaments = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean })
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const geometry = useMemo(() => new THREE.SphereGeometry(1.0, isMobile ? 8 : 16, isMobile ? 8 : 16), [isMobile]);
-  const material = useMemo(() => new THREE.MeshPhysicalMaterial({ 
-    roughness: 0.1, 
-    metalness: 1.0, 
-    reflectivity: 1.0,
-    envMapIntensity: 1.5,
-    emissive: new THREE.Color("#080808"),
-    emissiveIntensity: 0.4
-  }), []);
+  
+  // OPTIMIZATION: Use Standard Material instead of Physical for mobile performance
+  const material = useMemo(() => {
+    if (isMobile) {
+      return new THREE.MeshStandardMaterial({
+        roughness: 0.1,
+        metalness: 0.9,
+        emissive: new THREE.Color("#080808"),
+        emissiveIntensity: 0.4
+      });
+    }
+    return new THREE.MeshPhysicalMaterial({ 
+      roughness: 0.1, 
+      metalness: 1.0, 
+      reflectivity: 1.0,
+      envMapIntensity: 1.5,
+      emissive: new THREE.Color("#080808"),
+      emissiveIntensity: 0.4
+    });
+  }, [isMobile]);
 
   const data = useMemo(() => Array.from({ length: count }, () => ({
     tree: getConeSurfacePoint(12.2, 4.4).multiplyScalar(1.02),
@@ -471,40 +524,27 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   const [aspect, setAspect] = useState(1.0);
   const mix = useRef(0.0);
-  // Detect mobile specifically for texture optimization
+  // Detect mobile
   const isMobile = useMemo(() => /Mobi|Android/i.test(navigator.userAgent), []);
 
   useEffect(() => {
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin("Anonymous");
-    loader.load(url, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
-      
-      // CRITICAL: Memory Optimization for Mobile
-      // If mobile, disable mipmaps (minFilter=Linear) to save 33% memory per texture
-      if (isMobile) {
-        t.generateMipmaps = false;
-        t.minFilter = THREE.LinearFilter; 
-      }
-      
+    // Cleanup previous texture
+    return () => { if (texture) texture.dispose(); };
+  }, []);
+
+  useEffect(() => {
+    const handleTexture = (t: THREE.Texture) => {
       if (t.image) setAspect(t.image.width / t.image.height);
       setTexture(t);
-    }, undefined, () => {
-      loader.load(BACKUP_PHOTOS[index % BACKUP_PHOTOS.length], (t) => {
-        t.colorSpace = THREE.SRGBColorSpace;
-        if (isMobile) {
-          t.generateMipmaps = false;
-          t.minFilter = THREE.LinearFilter;
-        }
-        setTexture(t);
-      });
+    };
+
+    // Load optimized texture instead of raw large file
+    loadOptimizedTexture(url, isMobile, handleTexture, () => {
+      // Fallback
+      loadOptimizedTexture(BACKUP_PHOTOS[index % BACKUP_PHOTOS.length], isMobile, handleTexture);
     });
     
-    return () => {
-      // Cleanup texture when component unmounts
-      if (texture) texture.dispose();
-    }
-  }, [url, index]);
+  }, [url, index, isMobile]);
 
   useFrame((state, delta) => {
     if (!group.current) return;
@@ -526,7 +566,7 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
     <group ref={group} onClick={(e) => { e.stopPropagation(); onSelect(url); }}>
       <mesh position={[0, 0, -0.015]}>
         <boxGeometry args={[w + 0.1, h + 0.1, 0.04]} />
-        <meshPhysicalMaterial color={PALETTE.gold} metalness={0.9} roughness={0.1} emissive={PALETTE.gold} emissiveIntensity={0.15} />
+        <meshStandardMaterial color={PALETTE.gold} metalness={0.9} roughness={0.2} emissive={PALETTE.gold} emissiveIntensity={0.15} />
       </mesh>
       <mesh position={[0, 0, 0.012]}>
         <planeGeometry args={[w, h]} />
@@ -616,7 +656,8 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       <spotLight position={[20, 50, 20]} intensity={45} color={PALETTE.goldLight} angle={0.4} penumbra={1} castShadow />
       <pointLight position={[-15, 10, -15]} intensity={6} color={PALETTE.pinkDeep} />
 
-      <Stars radius={120} depth={60} count={isMobile ? 600 : 4000} factor={4} saturation={0} fade speed={1.2} />
+      {/* Reduced star count for mobile */}
+      <Stars radius={120} depth={60} count={isMobile ? 500 : 4000} factor={4} saturation={0} fade speed={1.2} />
       
       <Snow isTree={isTree} isMobile={isMobile} />
 
@@ -633,8 +674,7 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
 
       {/* 
          CRITICAL FIX: 
-         EffectComposer (Post-processing) is the #1 cause of Mobile WebGL Crashes due to Framebuffer size.
-         We completely disable it for mobile to ensure the app opens.
+         EffectComposer disabled on mobile to prevent VRAM crash.
       */}
       {!isMobile && (
         <EffectComposer enableNormalPass={false} multisampling={0}>
@@ -689,7 +729,6 @@ const App = () => {
   const dpr = useMemo(() => {
       if (typeof window === 'undefined') return 1;
       const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-      // High-res mobile screens (DPR 3.0) will crash with large textures. Cap at 1.5.
       return isMobile ? Math.min(1.5, window.devicePixelRatio || 1) : Math.min(2, window.devicePixelRatio || 1);
   }, []);
 
