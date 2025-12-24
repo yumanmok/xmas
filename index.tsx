@@ -226,84 +226,71 @@ function createSnowflakeTexture() {
 
 /* ================= Custom Materials ================= */
 
-// Switched to 'mediump' for better mobile compatibility
-// --- 1. Foliage Material ---
-const FoliageMaterial = shaderMaterial(
-  {
-    uTime: 0,
-    uMix: 0,
-    uColorBottom: new THREE.Color(PALETTE.emerald),
-    uColorTop: new THREE.Color(PALETTE.greenLight),
-    uColorGold: new THREE.Color(PALETTE.goldLight),
-    uPixelRatio: 1.0,
-  },
-  `
-    precision mediump float; 
-    uniform float uTime;
-    uniform float uMix;
-    uniform float uPixelRatio;
-    uniform vec3 uColorBottom;
-    uniform vec3 uColorTop;
-    attribute vec3 aScatterPos;
-    attribute vec3 aTreePos;
-    attribute float aRandom;
-    varying vec3 vColor;
-    varying float vAlpha;
-    varying float vRandom;
-
-    void main() {
-      vRandom = aRandom;
-      vec3 pos = mix(aScatterPos, aTreePos, uMix);
-      float flow = uTime * (0.07 + aRandom * 0.08);
-      pos.x += cos(flow + pos.y * 0.8) * 0.05 * uMix;
-      pos.z += sin(flow + pos.y * 0.8) * 0.05 * uMix;
-      pos.y += sin(uTime * 0.5 + aRandom * 10.0) * 0.03;
-      
-      vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-      gl_Position = projectionMatrix * mvPosition;
-      
-      float baseSize = mix(12.0, 7.0, uMix); 
-      float size = (baseSize + aRandom * 8.0) * uPixelRatio;
-      
-      size *= (35.0 / max(5.0, -mvPosition.z)); 
-      gl_PointSize = clamp(size, 3.0, 100.0);
-
-      float heightPct = clamp((aTreePos.y + 6.0) / 12.0, 0.0, 1.0);
-      float pulse = 0.8 + 0.2 * sin(uTime * 0.7 + aRandom * 12.0);
-      
-      vColor = mix(uColorBottom, uColorTop, heightPct) * pulse * 2.5;
-      vAlpha = mix(0.5, 0.9, uMix) * (0.6 + 0.4 * sin(uTime * 0.4 + aRandom * 7.0));
+// --- 1. New Foliage Shader (Purple/Pink/Sparkle) ---
+const FOLIAGE_VERTEX_SHADER = `
+  uniform float uTime;
+  uniform float uMix;
+  uniform float uPixelRatio; // Added to ensure size consistency across devices
+  
+  attribute vec3 treePosition;
+  attribute float size;
+  attribute float speed;
+  attribute float pulse;
+  
+  varying vec3 vColor;
+  
+  void main() {
+    // Current position mixing
+    vec3 pos = mix(position, treePosition, uMix);
+    
+    // Add breathing/wind effect with pulse offset
+    float breathing = sin(uTime * 1.5 + pulse) * 0.05;
+    pos.y += breathing;
+    
+    // Prevent clipping through floor (assume floor is at y=0 local)
+    if (pos.y < 0.0) pos.y = 0.0;
+    
+    // Subtle horizontal drift
+    pos.x += sin(uTime * speed + pos.y) * 0.02;
+    pos.z += cos(uTime * speed + pos.y) * 0.02;
+    
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    
+    // Size attenuation (Modified to use uPixelRatio)
+    gl_PointSize = size * (400.0 / -mvPosition.z) * uPixelRatio;
+    gl_Position = projectionMatrix * mvPosition;
+    
+    // Gradient color: Darker Purple -> Muted Pink (Reduced brightness for AdditiveBlending)
+    vec3 deepPurple = vec3(0.3, 0.1, 0.3);
+    vec3 softPink = vec3(0.7, 0.5, 0.7);
+    vec3 sparkle = vec3(0.9, 0.9, 1.0);
+    
+    // Mix based on height
+    float heightFactor = clamp(pos.y / 12.0, 0.0, 1.0);
+    vColor = mix(deepPurple, softPink, heightFactor);
+    
+    // Add sparkles based on speed/randomness
+    if (sin(speed * 50.0 + uTime) > 0.95) {
+       vColor = mix(vColor, sparkle, 0.7);
     }
-  `,
-  `
-    precision mediump float;
-    uniform float uTime;
-    uniform vec3 uColorGold;
-    varying vec3 vColor;
-    varying float vAlpha;
-    varying float vRandom;
+  }
+`;
 
-    void main() {
-      vec2 center = vec2(0.5, 0.5);
-      float dist = length(gl_PointCoord - center);
-      if (dist > 0.5) discard;
+const FOLIAGE_FRAGMENT_SHADER = `
+  varying vec3 vColor;
+  
+  void main() {
+    // Distance from center of point
+    float distanceToCenter = length(gl_PointCoord - vec2(0.5));
+    if (distanceToCenter > 0.5) discard;
 
-      vec2 highlightPos = vec2(0.35, 0.35);
-      float hDist = length(gl_PointCoord - highlightPos);
-      float highlight = 1.0 - smoothstep(0.0, 0.12, hDist);
-      highlight = pow(highlight, 3.5); 
-
-      float glitter = step(0.985, fract(uTime * 0.8 + vRandom * 80.0));
-      
-      vec3 col = vColor;
-      col = mix(col, uColorGold, highlight * 0.7 + glitter * 0.5);
-      col += vColor * highlight * 0.8;
-
-      float alpha = vAlpha * (1.0 - smoothstep(0.42, 0.5, dist));
-      gl_FragColor = vec4(col, alpha);
-    }
-  `
-);
+    // Smooth edge glow - slightly tighter center
+    float glow = 1.0 - smoothstep(0.1, 0.5, distanceToCenter);
+    
+    // Output color with reduced opacity
+    gl_FragColor = vec4(vColor, glow * 0.5);
+  }
+`;
 
 // --- 2. Snow Material ---
 const SnowMaterial = shaderMaterial(
@@ -362,13 +349,12 @@ const SnowMaterial = shaderMaterial(
   `
 );
 
-extend({ FoliageMaterial, SnowMaterial });
+extend({ SnowMaterial });
 
 declare global {
   namespace React {
     namespace JSX {
       interface IntrinsicElements {
-        foliageMaterial: ThreeElement<typeof FoliageMaterial>;
         snowMaterial: ThreeElement<typeof SnowMaterial>;
       }
     }
@@ -382,7 +368,7 @@ const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
   const materialRef = useRef<any>(null!);
   const count = isMobile ? 50 : 500; 
   const height = 30;
-  const dpr = useThree((state) => state.viewport.dpr);
+  const dpr = useThree((state: any) => state.viewport.dpr);
 
   const { positions, sizes, speeds, randomOffsets } = useMemo(() => {
     const positions = new Float32Array(count * 3);
@@ -463,49 +449,131 @@ const MusicPlayer = () => {
   );
 };
 
-const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  // Increased count for mobile as texture fix allows more headroom
-  const count = isMobile ? 2000 : 5000;
-  const materialRef = useRef<any>(null);
-  const dpr = useThree(s => s.viewport.dpr);
+// Replaced Foliage component with new visual style (Purple/Pink Gradient + Flat Bottom Logic)
+const Foliage = ({ isTreeShape, count }: { isTreeShape: boolean; count: number }) => {
+  const pointsRef = useRef<THREE.Points>(null);
+  const dpr = useThree((state: any) => state.viewport.dpr);
 
-  const { sPos, tPos, rnd } = useMemo(() => {
-    const sPos = new Float32Array(count * 3);
-    const tPos = new Float32Array(count * 3);
-    const rnd = new Float32Array(count);
-    
+  const { positions, treePositions, sizes, speeds, pulses } = useMemo(() => {
+    const positions = new Float32Array(count * 3);
+    const treePositions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    const speeds = new Float32Array(count);
+    const pulses = new Float32Array(count);
+
     for (let i = 0; i < count; i++) {
-      const s = getRandomSpherePoint(26.0); s.y += 5.0;
-      const t = getRandomConePoint(13.0, 4.6);
-      sPos.set([s.x, s.y, s.z], i * 3);
-      tPos.set([t.x, t.y, t.z], i * 3);
-      rnd[i] = Math.random();
+      // SCATTER: Random Sphere distribution (Galaxy)
+      const r = 14 * Math.cbrt(Math.random());
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(2 * Math.random() - 1);
+
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) + 6;
+      positions[i * 3 + 2] = r * Math.cos(phi);
+
+      // TREE: Cone distribution
+      let h = 12 * (1 - Math.cbrt(Math.random()));
+      
+      // Reduced base radius from 4.5 to 3.8 for a tighter look
+      let maxR = 3.8 * (1.0 - h / 12.5);
+      
+      // FORCE FLAT BOTTOM:
+      // Flatten ~8% of particles to the very bottom to create a defined base rim
+      if (Math.random() < 0.08) {
+          h = 0.2; // Sit just above floor
+          maxR = 3.8; // Base radius
+          // Push to edge for rim definition (0.8 - 1.0 of radius)
+          const coneR = maxR * (0.8 + Math.random() * 0.2);
+          const coneTheta = Math.random() * 2 * Math.PI;
+          
+          treePositions[i * 3] = coneR * Math.cos(coneTheta);
+          treePositions[i * 3 + 1] = h;
+          treePositions[i * 3 + 2] = coneR * Math.sin(coneTheta);
+      } else {
+          // Standard distribution
+          const coneR = Math.sqrt(Math.random()) * maxR;
+          const coneTheta = Math.random() * 2 * Math.PI;
+
+          treePositions[i * 3] = coneR * Math.cos(coneTheta);
+          treePositions[i * 3 + 1] = h;
+          treePositions[i * 3 + 2] = coneR * Math.sin(coneTheta);
+      }
+
+      sizes[i] = Math.random() * 0.6 + 0.2;
+      speeds[i] = Math.random() * 0.5 + 0.5;
+      pulses[i] = Math.random() * Math.PI * 2;
     }
-    return { sPos, tPos, rnd };
+
+    return { positions, treePositions, sizes, speeds, pulses };
   }, [count]);
 
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uMix: { value: 0 },
+      uPixelRatio: { value: 1.0 },
+    }),
+    []
+  );
+
   useFrame((state, delta) => {
-    if (materialRef.current) {
-      materialRef.current.uTime = state.clock.elapsedTime;
-      materialRef.current.uMix = damp(materialRef.current.uMix, isTree ? 1.0 : 0.0, 3.5, delta);
-      materialRef.current.uPixelRatio = dpr;
+    if (pointsRef.current) {
+      const material = pointsRef.current.material as THREE.ShaderMaterial;
+      material.uniforms.uTime.value = state.clock.elapsedTime;
+      material.uniforms.uPixelRatio.value = dpr;
+
+      // Faster scatter transition (0.6s) than assemble (1.0s)
+      easing.damp(
+        material.uniforms.uMix,
+        "value",
+        isTreeShape ? 1 : 0,
+        isTreeShape ? 1.0 : 0.6,
+        delta
+      );
     }
   });
 
   return (
-    <points frustumCulled={false}>
+    <points ref={pointsRef}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={tPos} />
-        <bufferAttribute attach="attributes-aTreePos" count={count} itemSize={3} array={tPos} />
-        <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={sPos} />
-        <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={rnd} />
+        <bufferAttribute
+          attach="attributes-position"
+          count={positions.length / 3}
+          array={positions}
+          itemSize={3}
+        />
+        <bufferAttribute
+          attach="attributes-treePosition"
+          count={treePositions.length / 3}
+          array={treePositions}
+          itemSize={3}
+        />
+        <bufferAttribute
+          attach="attributes-size"
+          count={sizes.length}
+          array={sizes}
+          itemSize={1}
+        />
+        <bufferAttribute
+          attach="attributes-speed"
+          count={speeds.length}
+          array={speeds}
+          itemSize={1}
+        />
+        <bufferAttribute
+          attach="attributes-pulse"
+          count={pulses.length}
+          array={pulses}
+          itemSize={1}
+        />
       </bufferGeometry>
-      <foliageMaterial 
-        ref={materialRef} 
-        transparent 
-        depthWrite={false} 
-        blending={THREE.AdditiveBlending} 
-        toneMapped={false} 
+      <shaderMaterial
+        vertexShader={FOLIAGE_VERTEX_SHADER}
+        fragmentShader={FOLIAGE_FRAGMENT_SHADER}
+        uniforms={uniforms}
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
       />
     </points>
   );
@@ -593,12 +661,20 @@ const Ornaments = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean })
     });
   }, [isMobile]);
 
-  const data = useMemo(() => Array.from({ length: count }, () => ({
-    tree: getConeSurfacePoint(12.2, 4.4).multiplyScalar(1.02),
-    scatter: getRandomSpherePoint(26.0).add(new THREE.Vector3(0, 5, 0)),
-    scale: 0.14 + Math.random() * 0.14,
-    color: Math.random() > 0.5 ? PALETTE.gold : PALETTE.pinkDeep
-  })), [count]);
+  const data = useMemo(() => Array.from({ length: count }, () => {
+    // FIX: Using correct coordinate space relative to floor (0 to 12)
+    // getConeSurfacePoint returns centered coords (y = -h/2 to h/2), so we add 6.1 (approx half height)
+    // to align with the new Foliage system (y = 0 to 12)
+    const p = getConeSurfacePoint(12.2, 4.4); 
+    p.y += 6.1; 
+    
+    return {
+      tree: p.multiplyScalar(1.02),
+      scatter: getRandomSpherePoint(26.0).add(new THREE.Vector3(0, 5, 0)),
+      scale: 0.14 + Math.random() * 0.14,
+      color: Math.random() > 0.5 ? PALETTE.gold : PALETTE.pinkDeep
+    };
+  }), [count]);
 
   const mixVal = useRef(0.0);
   useFrame((state, delta) => {
@@ -639,7 +715,9 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
 
   useEffect(() => {
     const handleTexture = (t: THREE.Texture) => {
-      if (t.image) setAspect(t.image.width / t.image.height);
+      // Cast image to any to prevent unknown type errors with width/height access
+      const img = t.image as any;
+      if (img) setAspect(img.width / img.height);
       setTexture(t);
     };
 
@@ -683,8 +761,9 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
 
 const PhotoGallery = ({ isTree, onSelect }: any) => {
   const items = useMemo(() => USER_PROVIDED_PHOTOS.map((url, i) => {
-    const y = (1.0 - i / USER_PROVIDED_PHOTOS.length) * 10.0 - 4.5;
-    const r = 4.6 * (1.0 - (y + 5.0) / 12.0) + 0.6;
+    // FIX: Adjusted mapping to fit within the 0 to 12 height range of the new tree
+    const y = (1.0 - i / USER_PROVIDED_PHOTOS.length) * 8.0 + 2.0; // Range roughly 2 to 10
+    const r = 4.6 * (1.0 - (y + 1.0) / 13.0) + 0.6; // Simplified radius calc
     const theta = i * 2.5;
     return {
       url,
@@ -720,7 +799,8 @@ const StarTop = ({ isTree }: { isTree: boolean }) => {
   useFrame((state, delta) => {
     if (!meshRef.current) return;
     meshRef.current.rotation.y += delta * 1.5;
-    const targetY = isTree ? 7.2 : 40.0;
+    // FIX: Increased height target to 12.5 to sit on top of the new tree foliage
+    const targetY = isTree ? 12.5 : 40.0;
     ref.current.position.y = damp(ref.current.position.y, targetY, 4, delta);
     ref.current.scale.setScalar(isTree ? 1.4 : 0.01);
   });
@@ -737,7 +817,8 @@ const StarTop = ({ isTree }: { isTree: boolean }) => {
 };
 
 const Scene = ({ isTree, onSelectPhoto }: any) => {
-  const { size } = useThree() as any;
+  // Explicitly type state as any to avoid 'unknown' errors when accessing size
+  const size = useThree((state: any) => state.size) as { width: number; height: number };
   const isMobile = size.width < 768;
   const fov = isMobile ? 65 : 45;
   const cameraDist = isMobile ? 36 : 30;
@@ -766,9 +847,10 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       
       <Snow isTree={isTree} isMobile={isMobile} />
 
-      <group position={[0, -2.5, 0]}>
+      {/* FIX: Moved main group to y = -11.6 to sit on the floor */}
+      <group position={[0, -11.6, 0]}>
         <Float speed={1.2} rotationIntensity={0.05} floatIntensity={0.08}>
-          <Foliage isTree={isTree} isMobile={isMobile} />
+          <Foliage isTreeShape={isTree} count={isMobile ? 2000 : 5000} />
           <Ornaments isTree={isTree} isMobile={isMobile} />
           <PhotoGallery isTree={isTree} onSelect={onSelectPhoto} />
           <StarTop isTree={isTree} />
