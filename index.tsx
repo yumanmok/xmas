@@ -3,6 +3,7 @@ import React, { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 import { Canvas, useFrame, extend, ThreeElement, useThree } from "@react-three/fiber";
+import { easing } from "maath";
 import {
   OrbitControls,
   Float,
@@ -122,6 +123,106 @@ const loadOptimizedTexture = (url: string, isMobile: boolean, callback: (texture
     if (errorCallback) errorCallback();
   };
 };
+
+// --- Procedural Snowflake Floor Generator ---
+function createSnowflakeTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Clear background
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "round";
+
+  // Draw 6-sided snowflake
+  const drawSnowflake = (x: number, y: number, size: number, alpha: number) => {
+    ctx.save();
+    ctx.translate(x, y);
+    // Warmer gold/cream tint for luxury feel
+    ctx.strokeStyle = `rgba(255, 240, 220, ${alpha})`;
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < 6; i++) {
+      ctx.save();
+      ctx.rotate((Math.PI / 3) * i);
+
+      // Main branch
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -size);
+      ctx.stroke();
+
+      // Sub-branches
+      const branchPos = [0.3, 0.5, 0.7];
+      branchPos.forEach((pos) => {
+        const y = -size * pos;
+        const branchLen = size * 0.25 * (1 - pos * 0.5);
+
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(-branchLen, y - branchLen * 0.6);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(branchLen, y - branchLen * 0.6);
+        ctx.stroke();
+      });
+
+      ctx.restore();
+    }
+
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.08, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.5})`;
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  // Main snowflake
+  drawSnowflake(centerX, centerY, 300, 0.45);
+
+  // Surrounding snowflakes
+  const smallSnowflakes = [
+    { x: 200, y: 200, size: 80 },
+    { x: 824, y: 200, size: 80 },
+    { x: 200, y: 824, size: 80 },
+    { x: 824, y: 824, size: 80 },
+    { x: 512, y: 150, size: 60 },
+    { x: 512, y: 874, size: 60 },
+    { x: 150, y: 512, size: 60 },
+    { x: 874, y: 512, size: 60 },
+  ];
+
+  smallSnowflakes.forEach((sf) => {
+    drawSnowflake(sf.x, sf.y, sf.size, 0.25);
+  });
+
+  // Scattered glitter dots
+  ctx.fillStyle = "rgba(255, 207, 77, 0.3)"; // Gold tint
+  for (let i = 0; i < 200; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = Math.random() * 3 + 1;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
 
 /* ================= Custom Materials ================= */
 
@@ -261,35 +362,7 @@ const SnowMaterial = shaderMaterial(
   `
 );
 
-// --- 3. Floor Material ---
-const SignatureFloorMaterial = shaderMaterial(
-  { uTime: 0, uColor: new THREE.Color(PALETTE.emerald), uGold: new THREE.Color(PALETTE.gold) },
-  `
-    precision mediump float;
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  `
-    precision mediump float;
-    uniform float uTime;
-    uniform vec3 uColor;
-    uniform vec3 uGold;
-    varying vec2 vUv;
-    void main() {
-      float dist = length(vUv - 0.5);
-      float alpha = smoothstep(0.5, 0.02, dist);
-      vec3 col = mix(vec3(0.001, 0.005, 0.002), uColor * 0.08, (1.0 - dist * 2.0));
-      float shim = smoothstep(0.12, 0.0, abs(dist - 0.25)) * 0.035;
-      col += uGold * shim * (0.6 + 0.4 * sin(uTime * 0.5));
-      gl_FragColor = vec4(col, alpha * 0.65);
-    }
-  `
-);
-
-extend({ FoliageMaterial, SnowMaterial, SignatureFloorMaterial });
+extend({ FoliageMaterial, SnowMaterial });
 
 declare global {
   namespace React {
@@ -297,7 +370,6 @@ declare global {
       interface IntrinsicElements {
         foliageMaterial: ThreeElement<typeof FoliageMaterial>;
         snowMaterial: ThreeElement<typeof SnowMaterial>;
-        signatureFloorMaterial: ThreeElement<typeof SignatureFloorMaterial>;
       }
     }
   }
@@ -439,29 +511,61 @@ const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) =
   );
 };
 
-const GroundEffect = ({ isMobile }: { isMobile: boolean }) => {
-  const floorRef = useRef<any>(null);
-  useFrame((state) => {
-    if (floorRef.current) floorRef.current.uTime = state.clock.elapsedTime;
+// Replaced GroundEffect with the new procedural snowflake floor
+const SnowflakeFloor = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+
+  // Generate the texture once
+  const texture = useMemo(() => {
+     const t = createSnowflakeTexture();
+     if(t) t.colorSpace = THREE.SRGBColorSpace;
+     return t;
+  }, []);
+
+  useFrame((_, delta) => {
+    if (!meshRef.current || !materialRef.current) return;
+
+    // Fade in/out logic using Maath easing for smoothness
+    const targetOpacity = isTree ? 0.8 : 0.0;
+    const targetScale = isTree ? 1.0 : 0.4;
+    
+    // Speed up scatter transition
+    const smoothTime = isTree ? 0.8 : 0.4;
+
+    easing.damp(materialRef.current, "opacity", targetOpacity, smoothTime, delta);
+    easing.damp(meshRef.current.scale, "x", targetScale, smoothTime, delta);
+    easing.damp(meshRef.current.scale, "y", targetScale, smoothTime, delta); // y corresponds to z in local space due to rotation
   });
+
+  if (!texture) return null;
 
   return (
     <group position={[0, -11.6, 0]}>
       {!isMobile && (
         <ContactShadows opacity={0.18} scale={26} blur={6} far={10} color="#000000" position={[0, 0.01, 0]} />
       )}
-      <mesh rotation={[-Math.PI / 2.0, 0, 0]}>
-        <planeGeometry args={[32, 32]} />
-        <signatureFloorMaterial 
-          ref={floorRef} 
-          transparent 
-          uColor={new THREE.Color(PALETTE.emerald)} 
-          uGold={new THREE.Color(PALETTE.gold)} 
+      <mesh
+        ref={meshRef}
+        rotation={[-Math.PI / 2, 0, 0]}
+        receiveShadow
+        scale={[1, 1, 1]} 
+      >
+        <circleGeometry args={[16, 64]} />
+        <meshStandardMaterial
+          ref={materialRef}
+          map={texture}
+          transparent
+          opacity={0}
+          roughness={0.4}
+          metalness={0.6}
+          side={THREE.DoubleSide}
+          depthWrite={false} // Prevent z-fighting with contact shadows
         />
       </mesh>
     </group>
   );
-};
+}
 
 const Ornaments = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
   const count = isMobile ? 30 : 75;
@@ -671,7 +775,8 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
         </Float>
       </group>
       
-      <GroundEffect isMobile={isMobile} />
+      {/* Replaced old GroundEffect with new SnowflakeFloor */}
+      <SnowflakeFloor isTree={isTree} isMobile={isMobile} />
 
       {/* 
          RESTORED EFFECTS FOR MOBILE:
