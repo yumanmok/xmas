@@ -265,8 +265,8 @@ declare global {
 const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
   const pointsRef = useRef<THREE.Points>(null!);
   const materialRef = useRef<any>(null!);
-  // Reduced snow for mobile for better performance
-  const count = isMobile ? 100 : 500; 
+  // Reduced snow for mobile for better performance (50 particles is very safe)
+  const count = isMobile ? 50 : 500; 
   const height = 30;
   const dpr = useThree((state) => state.viewport.dpr);
 
@@ -350,8 +350,8 @@ const MusicPlayer = () => {
 };
 
 const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  // Significantly reduced particle count for mobile to prevent crash/low fps
-  const count = isMobile ? 800 : 5000;
+  // Ultra-safe count for mobile to ensure loading
+  const count = isMobile ? 600 : 5000;
   const materialRef = useRef<any>(null);
   const dpr = useThree(s => s.viewport.dpr);
 
@@ -403,8 +403,6 @@ const GroundEffect = ({ isMobile }: { isMobile: boolean }) => {
     if (floorRef.current) floorRef.current.uTime = state.clock.elapsedTime;
   });
 
-  // CRITICAL FIX: Disable ContactShadows on mobile. It is too expensive (re-renders scene)
-  // and causes TDR/Crash on many mobile GPUs.
   return (
     <group position={[0, -11.6, 0]}>
       {!isMobile && (
@@ -427,7 +425,6 @@ const Ornaments = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean })
   const count = isMobile ? 30 : 75;
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  // Lower polygon count for mobile geometry
   const geometry = useMemo(() => new THREE.SphereGeometry(1.0, isMobile ? 8 : 16, isMobile ? 8 : 16), [isMobile]);
   const material = useMemo(() => new THREE.MeshPhysicalMaterial({ 
     roughness: 0.1, 
@@ -474,20 +471,39 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   const [aspect, setAspect] = useState(1.0);
   const mix = useRef(0.0);
+  // Detect mobile specifically for texture optimization
+  const isMobile = useMemo(() => /Mobi|Android/i.test(navigator.userAgent), []);
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("Anonymous");
     loader.load(url, (t) => {
       t.colorSpace = THREE.SRGBColorSpace;
+      
+      // CRITICAL: Memory Optimization for Mobile
+      // If mobile, disable mipmaps (minFilter=Linear) to save 33% memory per texture
+      if (isMobile) {
+        t.generateMipmaps = false;
+        t.minFilter = THREE.LinearFilter; 
+      }
+      
       if (t.image) setAspect(t.image.width / t.image.height);
       setTexture(t);
     }, undefined, () => {
       loader.load(BACKUP_PHOTOS[index % BACKUP_PHOTOS.length], (t) => {
         t.colorSpace = THREE.SRGBColorSpace;
+        if (isMobile) {
+          t.generateMipmaps = false;
+          t.minFilter = THREE.LinearFilter;
+        }
         setTexture(t);
       });
     });
+    
+    return () => {
+      // Cleanup texture when component unmounts
+      if (texture) texture.dispose();
+    }
   }, [url, index]);
 
   useFrame((state, delta) => {
@@ -615,16 +631,23 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       
       <GroundEffect isMobile={isMobile} />
 
-      <EffectComposer enableNormalPass={false} multisampling={0}>
-        <Bloom 
-          luminanceThreshold={0.15} 
-          intensity={isMobile ? 0.6 : 1.1} 
-          mipmapBlur={!isMobile} 
-          radius={0.5} 
-        />
-        <Vignette darkness={0.8} offset={0.1} />
-        {!isMobile && <Noise opacity={0.01} />}
-      </EffectComposer>
+      {/* 
+         CRITICAL FIX: 
+         EffectComposer (Post-processing) is the #1 cause of Mobile WebGL Crashes due to Framebuffer size.
+         We completely disable it for mobile to ensure the app opens.
+      */}
+      {!isMobile && (
+        <EffectComposer enableNormalPass={false} multisampling={0}>
+          <Bloom 
+            luminanceThreshold={0.15} 
+            intensity={1.1} 
+            mipmapBlur={true} 
+            radius={0.5} 
+          />
+          <Vignette darkness={0.8} offset={0.1} />
+          <Noise opacity={0.01} />
+        </EffectComposer>
+      )}
     </>
   );
 };
@@ -662,10 +685,11 @@ const App = () => {
   const [isTree, setIsTree] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
 
-  // Safety clamp for mobile DPR to avoid OOM
+  // CRITICAL FIX: Cap Mobile DPR at 1.5 to prevent OOM
   const dpr = useMemo(() => {
       if (typeof window === 'undefined') return 1;
       const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+      // High-res mobile screens (DPR 3.0) will crash with large textures. Cap at 1.5.
       return isMobile ? Math.min(1.5, window.devicePixelRatio || 1) : Math.min(2, window.devicePixelRatio || 1);
   }, []);
 
