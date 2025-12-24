@@ -1,4 +1,3 @@
-
 import React, { useRef, useMemo, useState, useEffect, Suspense, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
@@ -13,6 +12,8 @@ import {
   Stars,
   ContactShadows,
   Loader,
+  Sparkles,
+  RoundedBox, // Added RoundedBox
 } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocessing";
 
@@ -634,7 +635,7 @@ const FOLIAGE_VERTEX_SHADER = `
     gl_PointSize = size * (400.0 / -mvPosition.z) * uPixelRatio;
     gl_Position = projectionMatrix * mvPosition;
     
-    // Gradient color: Darker Purple -> Muted Pink (Reduced brightness for AdditiveBlending)
+    // Gradient color: Darker Purple -> Muted Pink (Reverted to original requested fantasy colors)
     vec3 deepPurple = vec3(0.3, 0.1, 0.3);
     vec3 softPink = vec3(0.7, 0.5, 0.7);
     vec3 sparkle = vec3(0.9, 0.9, 1.0);
@@ -736,6 +737,67 @@ declare global {
 }
 
 /* ================= Components ================= */
+
+// NEW COMPONENT: Background Particles (Galaxy Shell)
+const BackgroundParticles = () => {
+  const pointsRef = useRef<THREE.Points>(null);
+
+  const particles = useMemo(() => {
+    const count = 1000;
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+
+    for (let i = 0; i < count; i++) {
+      // Random distribution in a large distant sphere (40 to 80 radius)
+      const r = 40 + Math.random() * 40;
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(2 * Math.random() - 1);
+
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = r * Math.cos(phi);
+
+      sizes[i] = Math.random() * 2.0;
+    }
+    return { positions, sizes };
+  }, []);
+
+  useFrame((state) => {
+    if (pointsRef.current) {
+      // Slow rotation of the background galaxy
+      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.03;
+    }
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          count={particles.positions.length / 3}
+          array={particles.positions}
+          itemSize={3}
+        />
+        <bufferAttribute
+          attach="attributes-size"
+          count={particles.sizes.length}
+          array={particles.sizes}
+          itemSize={1}
+        />
+      </bufferGeometry>
+      {/* Blended Pink/Gold Dust */}
+      <pointsMaterial
+        size={0.15}
+        color={PALETTE.pinkDeep}
+        transparent
+        opacity={0.3}
+        sizeAttenuation
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
+    </points>
+  );
+}
 
 const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
   const pointsRef = useRef<THREE.Points>(null!);
@@ -1048,7 +1110,10 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
     } else {
       group.current.rotation.y = state.clock.elapsedTime * 0.05 + index;
     }
-    group.current.scale.setScalar(isTree ? 0.52 : 0.95);
+    
+    // Scale up slightly when scattered for better visibility (isTree is false)
+    const targetScale = isTree ? 0.52 : 1.35; 
+    group.current.scale.setScalar(targetScale);
   });
 
   const h = 1.35;
@@ -1056,31 +1121,43 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
 
   return (
     <group ref={group} onClick={(e) => { e.stopPropagation(); onSelect(url); }}>
-      <mesh position={[0, 0, -0.015]}>
-        <boxGeometry args={[w + 0.1, h + 0.1, 0.04]} />
+      {/* Replaced standard box with RoundedBox for nicer edges */}
+      <RoundedBox args={[w + 0.1, h + 0.1, 0.04]} radius={0.02} smoothness={4} position={[0, 0, -0.015]}>
         <meshStandardMaterial color={PALETTE.gold} metalness={0.9} roughness={0.2} emissive={PALETTE.gold} emissiveIntensity={0.15} />
-      </mesh>
+      </RoundedBox>
       <mesh position={[0, 0, 0.012]}>
         <planeGeometry args={[w, h]} />
-        {texture ? <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.96} /> : <meshBasicMaterial color="#0b1e15" />}
+        {/* Switched to StandardMaterial for better lighting integration while keeping image bright */}
+        {texture ? 
+          <meshStandardMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.96} roughness={0.4} metalness={0.1} /> 
+          : <meshBasicMaterial color="#0b1e15" />
+        }
       </mesh>
     </group>
   );
 };
 
-const PhotoGallery = ({ isTree, onSelect }: any) => {
+const PhotoGallery = ({ isTree, onSelect, isMobile }: any) => {
   const items = useMemo(() => USER_PROVIDED_PHOTOS.map((url, i) => {
     // FIX: Adjusted mapping to fit within the 0 to 12 height range of the new tree
     const y = (1.0 - i / USER_PROVIDED_PHOTOS.length) * 8.0 + 2.0; // Range roughly 2 to 10
     const r = 4.6 * (1.0 - (y + 1.0) / 13.0) + 0.6; // Simplified radius calc
     const theta = i * 2.5;
+
+    // SCATTER LOGIC UPDATE:
+    // Fixed "Lost Cards" issue: 
+    // Previous Radius (28) was too wide, placing cards behind the camera or deep in fog.
+    // New Radius (18 mobile / 15 desktop) places them perfectly floating in front of the viewer (Camera z is ~30-36)
+    const scatterRadius = isMobile ? 18.0 : 15.0;
+    
     return {
       url,
       treePos: new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)),
-      // Reduced scatter radius from 26.0 to 14.0 to keep photos closer to the particles
-      scatterPos: getRandomSpherePoint(14.0).add(new THREE.Vector3(0, 6, 0))
+      // Center the cloud vertically at y=6
+      scatterPos: getRandomSpherePoint(scatterRadius).add(new THREE.Vector3(0, 6, 0))
     };
-  }), []);
+  }), [isMobile]); // Added isMobile dependency
+
   return <group>{items.map((p, i) => <PhotoItem key={i} index={i} isTree={isTree} {...p} onSelect={onSelect} />)}</group>;
 };
 
@@ -1138,7 +1215,7 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       <PerspectiveCamera makeDefault position={[0, 4, cameraDist]} fov={fov} />
       <OrbitControls 
         autoRotate 
-        autoRotateSpeed={0.15} 
+        autoRotateSpeed={0.4} // Increased speed for better dynamic feel
         enablePan={false} 
         maxPolarAngle={Math.PI / 1.75} 
         minDistance={10} 
@@ -1147,7 +1224,10 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
         dampingFactor={0.05}
       />
       
+      {/* ATMOSPHERE & DREAMY FOG - Increased depth to ensure particles/photos aren't hidden */}
       <Environment preset="night" />
+      <fog attach="fog" args={['#010806', 8, 110]} /> 
+
       <ambientLight intensity={0.25} />
       <spotLight position={[20, 50, 20]} intensity={45} color={PALETTE.goldLight} angle={0.4} penumbra={1} castShadow />
       <pointLight position={[-15, 10, -15]} intensity={6} color={PALETTE.pinkDeep} />
@@ -1155,6 +1235,20 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       {/* Increased star count for mobile */}
       <Stars radius={120} depth={60} count={isMobile ? 1500 : 4000} factor={4} saturation={0} fade speed={1.2} />
       
+      {/* Background Galaxy Dust */}
+      <BackgroundParticles />
+
+      {/* FLOATING MAGIC DUST */}
+      <Sparkles 
+        count={80} 
+        scale={20} 
+        size={4} 
+        speed={0.4} 
+        opacity={0.6} 
+        color={PALETTE.goldLight} 
+        position={[0, 2, 0]} 
+      />
+
       <Snow isTree={isTree} isMobile={isMobile} />
 
       {/* FIX: Moved main group to y = -11.6 to sit on the floor */}
@@ -1169,7 +1263,7 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
           <Ornaments isTreeShape={isTree} count={isMobile ? 20 : 35} type="light" color="#fffee0" />
           <Ornaments isTreeShape={isTree} count={isMobile ? 6 : 10} type="diamond" color="#ffffff" />
 
-          <PhotoGallery isTree={isTree} onSelect={onSelectPhoto} />
+          <PhotoGallery isTree={isTree} onSelect={onSelectPhoto} isMobile={isMobile} />
           <StarTop isTree={isTree} />
         </Float>
       </group>
