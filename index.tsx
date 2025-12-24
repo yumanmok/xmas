@@ -11,6 +11,7 @@ import {
   shaderMaterial,
   Stars,
   ContactShadows,
+  Loader,
 } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocessing";
 
@@ -115,7 +116,7 @@ const FoliageMaterial = shaderMaterial(
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
       
-      // Dynamic Size: Larger base size for better visibility
+      // Dynamic Size
       float baseSize = mix(12.0, 7.0, uMix); 
       float size = (baseSize + aRandom * 8.0) * uPixelRatio;
       
@@ -126,9 +127,7 @@ const FoliageMaterial = shaderMaterial(
       float heightPct = clamp((aTreePos.y + 6.0) / 12.0, 0.0, 1.0);
       float pulse = 0.8 + 0.2 * sin(uTime * 0.7 + aRandom * 12.0);
       
-      // Boosted Brightness for non-tone-mapped rendering
       vColor = mix(uColorBottom, uColorTop, heightPct) * pulse * 2.5;
-      
       vAlpha = mix(0.5, 0.9, uMix) * (0.6 + 0.4 * sin(uTime * 0.4 + aRandom * 7.0));
     }
   `,
@@ -154,7 +153,6 @@ const FoliageMaterial = shaderMaterial(
       
       vec3 col = vColor;
       col = mix(col, uColorGold, highlight * 0.7 + glitter * 0.5);
-      // Brighten slightly more to fight anti-aliasing artifacts on edges
       col += vColor * highlight * 0.8;
 
       float alpha = vAlpha * (1.0 - smoothstep(0.42, 0.5, dist));
@@ -176,7 +174,7 @@ const SnowMaterial = shaderMaterial(
     precision highp float;
     uniform float uTime;
     uniform float uHeight; 
-    uniform float uPixelRatio; // Added support for retina screens
+    uniform float uPixelRatio; 
     
     attribute float aSize;
     attribute float aSpeed;
@@ -186,25 +184,19 @@ const SnowMaterial = shaderMaterial(
     
     void main() {
       vec3 pos = position;
-      
-      // Falling animation with wrap-around
       float fallOffset = uTime * aSpeed;
       pos.y = mod(position.y - fallOffset, uHeight);
-      pos.y -= uHeight * 0.5; // Center vertically
+      pos.y -= uHeight * 0.5; 
       
-      // Gentle drift
       pos.x += sin(uTime * 0.5 + aOffset.x) * 0.5;
       pos.z += cos(uTime * 0.3 + aOffset.z) * 0.5;
       
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
       
-      // Size calculation with Pixel Ratio
-      // Boosted base multiplier 350.0 ensures visibility
       float finalSize = aSize * uPixelRatio;
       gl_PointSize = finalSize * (350.0 / -mvPosition.z);
       
-      // Soft vertical fade
       float normalizedY = (pos.y + uHeight * 0.5) / uHeight;
       vOpacity = smoothstep(0.0, 0.15, normalizedY) * (1.0 - smoothstep(0.85, 1.0, normalizedY));
     }
@@ -219,11 +211,8 @@ const SnowMaterial = shaderMaterial(
       vec2 xy = gl_PointCoord.xy - vec2(0.5);
       float dist = length(xy);
       if (dist > 0.5) discard;
-      
-      // Soft glow
       float glow = 1.0 - smoothstep(0.0, 0.5, dist);
       glow = pow(glow, 1.2);
-      
       gl_FragColor = vec4(uColor, glow * uGlobalOpacity * vOpacity);
     }
   `
@@ -276,12 +265,11 @@ declare global {
 const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
   const pointsRef = useRef<THREE.Points>(null!);
   const materialRef = useRef<any>(null!);
-  // Desktop gets more snow
-  const count = isMobile ? 150 : 500; 
+  // Reduced snow for mobile for better performance
+  const count = isMobile ? 100 : 500; 
   const height = 30;
   const dpr = useThree((state) => state.viewport.dpr);
 
-  // Use useMemo ensures buffers regenerate when 'count' changes (desktop <-> mobile)
   const { positions, sizes, speeds, randomOffsets } = useMemo(() => {
     const positions = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
@@ -292,11 +280,8 @@ const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
       positions[i * 3] = (Math.random() - 0.5) * 40; 
       positions[i * 3 + 1] = (Math.random() - 0.5) * height;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 40;
-
-      // Larger size range for better visibility
       sizes[i] = Math.random() * 1.5 + 0.5; 
       speeds[i] = Math.random() * 1.5 + 0.5; 
-      
       randomOffsets[i * 3] = Math.random() * 100;
       randomOffsets[i * 3 + 1] = Math.random() * 100;
       randomOffsets[i * 3 + 2] = Math.random() * 100;
@@ -322,7 +307,6 @@ const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
         <bufferAttribute attach="attributes-aSpeed" count={count} itemSize={1} array={speeds} />
         <bufferAttribute attach="attributes-aOffset" count={count} itemSize={3} array={randomOffsets} />
       </bufferGeometry>
-      {/* toneMapped={false} is critical for bright white snow */}
       <snowMaterial 
         ref={materialRef} 
         transparent 
@@ -366,13 +350,11 @@ const MusicPlayer = () => {
 };
 
 const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  // Mobile gets fewer particles for performance, Desktop gets more for density
-  const count = isMobile ? 1500 : 5000;
+  // Significantly reduced particle count for mobile to prevent crash/low fps
+  const count = isMobile ? 800 : 5000;
   const materialRef = useRef<any>(null);
   const dpr = useThree(s => s.viewport.dpr);
 
-  // BUG FIX: Using useMemo instead of useState ensures data regenerates when 'count' changes
-  // This prevents the "missing leaves on desktop" bug.
   const { sPos, tPos, rnd } = useMemo(() => {
     const sPos = new Float32Array(count * 3);
     const tPos = new Float32Array(count * 3);
@@ -404,7 +386,6 @@ const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) =
         <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={sPos} />
         <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={rnd} />
       </bufferGeometry>
-      {/* toneMapped={false} ensures colors aren't crushed by the environment */}
       <foliageMaterial 
         ref={materialRef} 
         transparent 
@@ -421,9 +402,14 @@ const GroundEffect = ({ isMobile }: { isMobile: boolean }) => {
   useFrame((state) => {
     if (floorRef.current) floorRef.current.uTime = state.clock.elapsedTime;
   });
+
+  // CRITICAL FIX: Disable ContactShadows on mobile. It is too expensive (re-renders scene)
+  // and causes TDR/Crash on many mobile GPUs.
   return (
     <group position={[0, -11.6, 0]}>
-      <ContactShadows opacity={isMobile ? 0.12 : 0.18} scale={26} blur={6} far={10} color="#000000" position={[0, 0.01, 0]} />
+      {!isMobile && (
+        <ContactShadows opacity={0.18} scale={26} blur={6} far={10} color="#000000" position={[0, 0.01, 0]} />
+      )}
       <mesh rotation={[-Math.PI / 2.0, 0, 0]}>
         <planeGeometry args={[32, 32]} />
         <signatureFloorMaterial 
@@ -438,9 +424,10 @@ const GroundEffect = ({ isMobile }: { isMobile: boolean }) => {
 };
 
 const Ornaments = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  const count = isMobile ? 35 : 75;
+  const count = isMobile ? 30 : 75;
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  // Lower polygon count for mobile geometry
   const geometry = useMemo(() => new THREE.SphereGeometry(1.0, isMobile ? 8 : 16, isMobile ? 8 : 16), [isMobile]);
   const material = useMemo(() => new THREE.MeshPhysicalMaterial({ 
     roughness: 0.1, 
@@ -527,7 +514,6 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
       </mesh>
       <mesh position={[0, 0, 0.012]}>
         <planeGeometry args={[w, h]} />
-        {/* Fallback color while texture loads (Deep Emerald) */}
         {texture ? <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.96} /> : <meshBasicMaterial color="#0b1e15" />}
       </mesh>
     </group>
@@ -614,7 +600,7 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       <spotLight position={[20, 50, 20]} intensity={45} color={PALETTE.goldLight} angle={0.4} penumbra={1} castShadow />
       <pointLight position={[-15, 10, -15]} intensity={6} color={PALETTE.pinkDeep} />
 
-      <Stars radius={120} depth={60} count={isMobile ? 1200 : 4000} factor={4} saturation={0} fade speed={1.2} />
+      <Stars radius={120} depth={60} count={isMobile ? 600 : 4000} factor={4} saturation={0} fade speed={1.2} />
       
       <Snow isTree={isTree} isMobile={isMobile} />
 
@@ -676,6 +662,7 @@ const App = () => {
   const [isTree, setIsTree] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Safety clamp for mobile DPR to avoid OOM
   const dpr = useMemo(() => {
       if (typeof window === 'undefined') return 1;
       const isMobile = /Mobi|Android/i.test(navigator.userAgent);
@@ -687,6 +674,12 @@ const App = () => {
       <UIOverlay isTree={isTree} toggle={() => setIsTree(!isTree)} />
       <MusicPlayer />
       <Lightbox src={selected} close={() => setSelected(null)} />
+      <Loader 
+        containerStyles={{ background: PALETTE.bg }} 
+        innerStyles={{ width: '200px', height: '10px', background: '#333' }}
+        barStyles={{ background: PALETTE.gold, height: '10px' }}
+        dataStyles={{ color: PALETTE.gold, fontFamily: 'Inter', fontSize: '12px' }}
+      />
       <Canvas 
         shadows 
         dpr={dpr}
