@@ -1,3 +1,4 @@
+
 import React, { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
@@ -391,7 +392,8 @@ const MusicPlayer = () => {
 };
 
 const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  const count = isMobile ? 600 : 5000;
+  // Increased count for mobile as texture fix allows more headroom
+  const count = isMobile ? 2000 : 5000;
   const materialRef = useRef<any>(null);
   const dpr = useThree(s => s.viewport.dpr);
 
@@ -655,8 +657,8 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       <spotLight position={[20, 50, 20]} intensity={45} color={PALETTE.goldLight} angle={0.4} penumbra={1} castShadow />
       <pointLight position={[-15, 10, -15]} intensity={6} color={PALETTE.pinkDeep} />
 
-      {/* Reduced star count for mobile */}
-      <Stars radius={120} depth={60} count={isMobile ? 500 : 4000} factor={4} saturation={0} fade speed={1.2} />
+      {/* Increased star count for mobile */}
+      <Stars radius={120} depth={60} count={isMobile ? 1500 : 4000} factor={4} saturation={0} fade speed={1.2} />
       
       <Snow isTree={isTree} isMobile={isMobile} />
 
@@ -672,21 +674,20 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       <GroundEffect isMobile={isMobile} />
 
       {/* 
-         CRITICAL FIX: 
-         EffectComposer disabled on mobile to prevent VRAM crash.
+         RESTORED EFFECTS FOR MOBILE:
+         Since we fixed the VRAM issue via texture resizing, we can safely bring back Bloom.
+         We keep multisampling=0 for performance.
       */}
-      {!isMobile && (
-        <EffectComposer enableNormalPass={false} multisampling={0}>
-          <Bloom 
-            luminanceThreshold={0.15} 
-            intensity={1.1} 
-            mipmapBlur={true} 
-            radius={0.5} 
-          />
-          <Vignette darkness={0.8} offset={0.1} />
-          <Noise opacity={0.01} />
-        </EffectComposer>
-      )}
+      <EffectComposer enableNormalPass={false} multisampling={0}>
+        <Bloom 
+          luminanceThreshold={0.2} 
+          intensity={isMobile ? 0.8 : 1.1} 
+          mipmapBlur={true} 
+          radius={0.5} 
+        />
+        <Vignette darkness={0.8} offset={0.1} />
+        <Noise opacity={0.015} /> 
+      </EffectComposer>
     </>
   );
 };
