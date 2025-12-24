@@ -1,4 +1,3 @@
-
 import React, { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
@@ -632,7 +631,7 @@ const StarTop = ({ isTree }: { isTree: boolean }) => {
 };
 
 const Scene = ({ isTree, onSelectPhoto }: any) => {
-  const { size } = useThree();
+  const { size } = useThree() as any;
   const isMobile = size.width < 768;
   const fov = isMobile ? 65 : 45;
   const cameraDist = isMobile ? 36 : 30;
