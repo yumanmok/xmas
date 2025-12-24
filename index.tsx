@@ -80,6 +80,7 @@ const getConeSurfacePoint = (h: number, r: number) => {
 
 /* ================= Custom Materials ================= */
 
+// --- 1. Foliage Material ---
 const FoliageMaterial = shaderMaterial(
   {
     uTime: 0,
@@ -114,19 +115,21 @@ const FoliageMaterial = shaderMaterial(
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
       
-      // Point size logic enhanced for Desktop (uPixelRatio = 1.0)
-      float baseSize = mix(8.0, 5.5, uMix);
-      float size = (baseSize + aRandom * 5.0) * uPixelRatio;
+      // Dynamic Size: Larger base size for better visibility
+      float baseSize = mix(12.0, 7.0, uMix); 
+      float size = (baseSize + aRandom * 8.0) * uPixelRatio;
+      
       // Perspective attenuation
       size *= (35.0 / max(5.0, -mvPosition.z)); 
-      gl_PointSize = clamp(size, 2.0, 50.0);
+      gl_PointSize = clamp(size, 3.0, 100.0);
 
       float heightPct = clamp((aTreePos.y + 6.0) / 12.0, 0.0, 1.0);
       float pulse = 0.8 + 0.2 * sin(uTime * 0.7 + aRandom * 12.0);
-      // Brighten color for additive visibility
-      vColor = mix(uColorBottom, uColorTop, heightPct) * pulse * 1.2;
       
-      vAlpha = mix(0.5, 0.85, uMix) * (0.6 + 0.4 * sin(uTime * 0.4 + aRandom * 7.0));
+      // Boosted Brightness for non-tone-mapped rendering
+      vColor = mix(uColorBottom, uColorTop, heightPct) * pulse * 2.5;
+      
+      vAlpha = mix(0.5, 0.9, uMix) * (0.6 + 0.4 * sin(uTime * 0.4 + aRandom * 7.0));
     }
   `,
   `
@@ -147,12 +150,12 @@ const FoliageMaterial = shaderMaterial(
       float highlight = 1.0 - smoothstep(0.0, 0.12, hDist);
       highlight = pow(highlight, 3.5); 
 
-      float glitter = step(0.98, fract(uTime * 1.0 + vRandom * 60.0));
+      float glitter = step(0.985, fract(uTime * 0.8 + vRandom * 80.0));
       
       vec3 col = vColor;
-      col = mix(col, uColorGold, highlight * 0.7 + glitter * 0.4);
-      // Ensure it's bright enough to trigger Bloom
-      col += vColor * highlight * 0.5;
+      col = mix(col, uColorGold, highlight * 0.7 + glitter * 0.5);
+      // Brighten slightly more to fight anti-aliasing artifacts on edges
+      col += vColor * highlight * 0.8;
 
       float alpha = vAlpha * (1.0 - smoothstep(0.42, 0.5, dist));
       gl_FragColor = vec4(col, alpha);
@@ -160,6 +163,73 @@ const FoliageMaterial = shaderMaterial(
   `
 );
 
+// --- 2. Snow Material ---
+const SnowMaterial = shaderMaterial(
+  {
+    uTime: 0,
+    uHeight: 30,
+    uColor: new THREE.Color("#ffffff"),
+    uGlobalOpacity: 0,
+    uPixelRatio: 1.0,
+  },
+  `
+    precision highp float;
+    uniform float uTime;
+    uniform float uHeight; 
+    uniform float uPixelRatio; // Added support for retina screens
+    
+    attribute float aSize;
+    attribute float aSpeed;
+    attribute vec3 aOffset;
+    
+    varying float vOpacity;
+    
+    void main() {
+      vec3 pos = position;
+      
+      // Falling animation with wrap-around
+      float fallOffset = uTime * aSpeed;
+      pos.y = mod(position.y - fallOffset, uHeight);
+      pos.y -= uHeight * 0.5; // Center vertically
+      
+      // Gentle drift
+      pos.x += sin(uTime * 0.5 + aOffset.x) * 0.5;
+      pos.z += cos(uTime * 0.3 + aOffset.z) * 0.5;
+      
+      vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+      gl_Position = projectionMatrix * mvPosition;
+      
+      // Size calculation with Pixel Ratio
+      // Boosted base multiplier 350.0 ensures visibility
+      float finalSize = aSize * uPixelRatio;
+      gl_PointSize = finalSize * (350.0 / -mvPosition.z);
+      
+      // Soft vertical fade
+      float normalizedY = (pos.y + uHeight * 0.5) / uHeight;
+      vOpacity = smoothstep(0.0, 0.15, normalizedY) * (1.0 - smoothstep(0.85, 1.0, normalizedY));
+    }
+  `,
+  `
+    precision highp float;
+    uniform vec3 uColor;
+    uniform float uGlobalOpacity;
+    varying float vOpacity;
+    
+    void main() {
+      vec2 xy = gl_PointCoord.xy - vec2(0.5);
+      float dist = length(xy);
+      if (dist > 0.5) discard;
+      
+      // Soft glow
+      float glow = 1.0 - smoothstep(0.0, 0.5, dist);
+      glow = pow(glow, 1.2);
+      
+      gl_FragColor = vec4(uColor, glow * uGlobalOpacity * vOpacity);
+    }
+  `
+);
+
+// --- 3. Floor Material ---
 const SignatureFloorMaterial = shaderMaterial(
   { uTime: 0, uColor: new THREE.Color(PALETTE.emerald), uGold: new THREE.Color(PALETTE.gold) },
   `
@@ -187,14 +257,15 @@ const SignatureFloorMaterial = shaderMaterial(
   `
 );
 
-extend({ FoliageMaterial, SignatureFloorMaterial });
+extend({ FoliageMaterial, SnowMaterial, SignatureFloorMaterial });
 
 declare global {
   namespace React {
     namespace JSX {
       interface IntrinsicElements {
-        foliageMaterial: ThreeElement<typeof FoliageMaterial> & { uTime?: number; uMix?: number; uColorBottom?: THREE.Color; uColorTop?: THREE.Color; uColorGold?: THREE.Color; uPixelRatio?: number; };
-        signatureFloorMaterial: ThreeElement<typeof SignatureFloorMaterial> & { uTime?: number; uColor?: THREE.Color; uGold?: THREE.Color; };
+        foliageMaterial: ThreeElement<typeof FoliageMaterial>;
+        snowMaterial: ThreeElement<typeof SnowMaterial>;
+        signatureFloorMaterial: ThreeElement<typeof SignatureFloorMaterial>;
       }
     }
   }
@@ -202,35 +273,63 @@ declare global {
 
 /* ================= Components ================= */
 
-const Snow = ({ isMobile }: { isMobile: boolean }) => {
-  const count = isMobile ? 80 : 250; 
-  const mesh = useRef<THREE.Points>(null!);
-  const [positions] = useState(() => {
-    const pos = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      pos.set([(Math.random() - 0.5) * 60.0, Math.random() * 50.0 - 10.0, (Math.random() - 0.5) * 60.0], i * 3);
-    }
-    return pos;
-  });
+const Snow = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
+  const pointsRef = useRef<THREE.Points>(null!);
+  const materialRef = useRef<any>(null!);
+  // Desktop gets more snow
+  const count = isMobile ? 150 : 500; 
+  const height = 30;
+  const dpr = useThree((state) => state.viewport.dpr);
 
-  useFrame((state) => {
-    if (!mesh.current) return;
-    const array = mesh.current.geometry.attributes.position.array as Float32Array;
+  // Use useMemo ensures buffers regenerate when 'count' changes (desktop <-> mobile)
+  const { positions, sizes, speeds, randomOffsets } = useMemo(() => {
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    const speeds = new Float32Array(count);
+    const randomOffsets = new Float32Array(count * 3);
+
     for (let i = 0; i < count; i++) {
-      let y = array[i * 3 + 1];
-      y -= 0.015;
-      if (y < -15.0) y = 35.0;
-      array[i * 3 + 1] = y;
+      positions[i * 3] = (Math.random() - 0.5) * 40; 
+      positions[i * 3 + 1] = (Math.random() - 0.5) * height;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+
+      // Larger size range for better visibility
+      sizes[i] = Math.random() * 1.5 + 0.5; 
+      speeds[i] = Math.random() * 1.5 + 0.5; 
+      
+      randomOffsets[i * 3] = Math.random() * 100;
+      randomOffsets[i * 3 + 1] = Math.random() * 100;
+      randomOffsets[i * 3 + 2] = Math.random() * 100;
     }
-    mesh.current.geometry.attributes.position.needsUpdate = true;
+
+    return { positions, sizes, speeds, randomOffsets };
+  }, [count]);
+
+  useFrame((state, delta) => {
+    if (materialRef.current) {
+      materialRef.current.uTime = state.clock.elapsedTime;
+      const targetOpacity = isTree ? 0.9 : 0.0;
+      materialRef.current.uGlobalOpacity = damp(materialRef.current.uGlobalOpacity, targetOpacity, 2, delta);
+      materialRef.current.uPixelRatio = dpr;
+    }
   });
 
   return (
-    <points ref={mesh}>
+    <points ref={pointsRef} position={[0, 5, 0]}> 
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={positions} />
+        <bufferAttribute attach="attributes-aSize" count={count} itemSize={1} array={sizes} />
+        <bufferAttribute attach="attributes-aSpeed" count={count} itemSize={1} array={speeds} />
+        <bufferAttribute attach="attributes-aOffset" count={count} itemSize={3} array={randomOffsets} />
       </bufferGeometry>
-      <pointsMaterial size={0.06} color="#ffffff" transparent opacity={0.05} sizeAttenuation />
+      {/* toneMapped={false} is critical for bright white snow */}
+      <snowMaterial 
+        ref={materialRef} 
+        transparent 
+        depthWrite={false} 
+        blending={THREE.AdditiveBlending}
+        toneMapped={false} 
+      />
     </points>
   );
 };
@@ -249,8 +348,11 @@ const MusicPlayer = () => {
 
   const toggle = () => {
     if (!audioRef.current) return;
-    if (playing) audioRef.current.pause();
-    else audioRef.current.play().catch(() => {});
+    if (playing) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(e => console.log("Audio playback waiting for interaction"));
+    }
     setPlaying(!playing);
   };
 
@@ -264,12 +366,18 @@ const MusicPlayer = () => {
 };
 
 const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) => {
-  const count = isMobile ? 1800 : 4500;
+  // Mobile gets fewer particles for performance, Desktop gets more for density
+  const count = isMobile ? 1500 : 5000;
   const materialRef = useRef<any>(null);
   const dpr = useThree(s => s.viewport.dpr);
 
-  const [data] = useState(() => {
-    const sPos = new Float32Array(count * 3), tPos = new Float32Array(count * 3), rnd = new Float32Array(count);
+  // BUG FIX: Using useMemo instead of useState ensures data regenerates when 'count' changes
+  // This prevents the "missing leaves on desktop" bug.
+  const { sPos, tPos, rnd } = useMemo(() => {
+    const sPos = new Float32Array(count * 3);
+    const tPos = new Float32Array(count * 3);
+    const rnd = new Float32Array(count);
+    
     for (let i = 0; i < count; i++) {
       const s = getRandomSpherePoint(26.0); s.y += 5.0;
       const t = getRandomConePoint(13.0, 4.6);
@@ -278,12 +386,12 @@ const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) =
       rnd[i] = Math.random();
     }
     return { sPos, tPos, rnd };
-  });
+  }, [count]);
 
   useFrame((state, delta) => {
     if (materialRef.current) {
       materialRef.current.uTime = state.clock.elapsedTime;
-      materialRef.current.uMix = damp(materialRef.current.uMix, isTree ? 1.0 : 0.0, 3, delta);
+      materialRef.current.uMix = damp(materialRef.current.uMix, isTree ? 1.0 : 0.0, 3.5, delta);
       materialRef.current.uPixelRatio = dpr;
     }
   });
@@ -291,12 +399,19 @@ const Foliage = ({ isTree, isMobile }: { isTree: boolean, isMobile: boolean }) =
   return (
     <points frustumCulled={false}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={data.tPos} />
-        <bufferAttribute attach="attributes-aTreePos" count={count} itemSize={3} array={data.tPos} />
-        <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={data.sPos} />
-        <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={data.rnd} />
+        <bufferAttribute attach="attributes-position" count={count} itemSize={3} array={tPos} />
+        <bufferAttribute attach="attributes-aTreePos" count={count} itemSize={3} array={tPos} />
+        <bufferAttribute attach="attributes-aScatterPos" count={count} itemSize={3} array={sPos} />
+        <bufferAttribute attach="attributes-aRandom" count={count} itemSize={1} array={rnd} />
       </bufferGeometry>
-      <foliageMaterial ref={materialRef} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
+      {/* toneMapped={false} ensures colors aren't crushed by the environment */}
+      <foliageMaterial 
+        ref={materialRef} 
+        transparent 
+        depthWrite={false} 
+        blending={THREE.AdditiveBlending} 
+        toneMapped={false} 
+      />
     </points>
   );
 };
@@ -412,7 +527,8 @@ const PhotoItem = ({ url, treePos, scatterPos, isTree, index, onSelect }: any) =
       </mesh>
       <mesh position={[0, 0, 0.012]}>
         <planeGeometry args={[w, h]} />
-        {texture ? <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.96} /> : <meshBasicMaterial color="#080808" />}
+        {/* Fallback color while texture loads (Deep Emerald) */}
+        {texture ? <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent opacity={0.96} /> : <meshBasicMaterial color="#0b1e15" />}
       </mesh>
     </group>
   );
@@ -482,7 +598,16 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
   return (
     <>
       <PerspectiveCamera makeDefault position={[0, 4, cameraDist]} fov={fov} />
-      <OrbitControls autoRotate autoRotateSpeed={0.15} enablePan={false} maxPolarAngle={Math.PI / 1.75} minDistance={10} maxDistance={70} />
+      <OrbitControls 
+        autoRotate 
+        autoRotateSpeed={0.15} 
+        enablePan={false} 
+        maxPolarAngle={Math.PI / 1.75} 
+        minDistance={10} 
+        maxDistance={70}
+        enableDamping={true}
+        dampingFactor={0.05}
+      />
       
       <Environment preset="night" />
       <ambientLight intensity={0.25} />
@@ -490,7 +615,8 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
       <pointLight position={[-15, 10, -15]} intensity={6} color={PALETTE.pinkDeep} />
 
       <Stars radius={120} depth={60} count={isMobile ? 1200 : 4000} factor={4} saturation={0} fade speed={1.2} />
-      <Snow isMobile={isMobile} />
+      
+      <Snow isTree={isTree} isMobile={isMobile} />
 
       <group position={[0, -2.5, 0]}>
         <Float speed={1.2} rotationIntensity={0.05} floatIntensity={0.08}>
@@ -505,7 +631,7 @@ const Scene = ({ isTree, onSelectPhoto }: any) => {
 
       <EffectComposer enableNormalPass={false} multisampling={0}>
         <Bloom 
-          luminanceThreshold={0.15} // Lower threshold ensures additive points are visible
+          luminanceThreshold={0.15} 
           intensity={isMobile ? 0.6 : 1.1} 
           mipmapBlur={!isMobile} 
           radius={0.5} 
@@ -553,7 +679,6 @@ const App = () => {
   const dpr = useMemo(() => {
       if (typeof window === 'undefined') return 1;
       const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-      // Higher quality for desktop monitors
       return isMobile ? Math.min(1.5, window.devicePixelRatio || 1) : Math.min(2, window.devicePixelRatio || 1);
   }, []);
 
